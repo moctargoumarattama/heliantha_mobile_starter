@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+import logging
+from time import monotonic
+from typing import Any
+from urllib.parse import urljoin
+
+import httpx
+
+from app.core.config import Settings
+
+
+logger = logging.getLogger(__name__)
+
+
+class PrestaShopError(RuntimeError):
+    pass
+
+
+class PrestaShopClient:
+    _client: httpx.AsyncClient | None = None
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.base_url = settings.prestashop_base_url.rstrip("/") + "/"
+        self.api_url = urljoin(self.base_url, "api/")
+        self.auth = httpx.BasicAuth(settings.prestashop_webservice_key, "")
+        self.prestashop_calls = 0
+        self.prestashop_time_ms = 0.0
+
+    def _check_config(self) -> None:
+        if not self.settings.prestashop_webservice_key:
+            raise PrestaShopError(
+                "PRESTASHOP_WEBSERVICE_KEY n'est pas configurée."
+            )
+
+    async def _request(
+        self,
+        method: str,
+        resource: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        self._check_config()
+        url = urljoin(self.api_url, resource.lstrip("/"))
+        merged_params = {"output_format": "JSON"}
+        if params:
+            merged_params.update(params)
+
+        client = self._shared_client()
+        start = monotonic()
+        response = await client.request(method, url, params=merged_params)
+        self.prestashop_calls += 1
+        self.prestashop_time_ms += (monotonic() - start) * 1000
+
+        if response.status_code >= 400:
+            body = response.text[:800]
+            raise PrestaShopError(
+                f"PrestaShop {response.status_code} sur {resource}: {body}"
+            )
+
+        content_type = response.headers.get("content-type", "")
+        if "json" not in content_type.lower():
+            raise PrestaShopError(
+                "PrestaShop n'a pas renvoyé du JSON. "
+                "Vérifier output_format=JSON et la configuration Webservice."
+            )
+        return response.json()
+
+    async def list_resource(
+        self,
+        resource: str,
+        *,
+        display: str | None = None,
+        filters: dict[str, str] | None = None,
+        limit: str | None = None,
+        sort: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        request_params: dict[str, Any] = {}
+        if display:
+            request_params["display"] = display
+        if filters:
+            for key, value in filters.items():
+                filter_key = key if key.startswith("filter[") else f"filter[{key}]"
+                request_params[filter_key] = value
+        if limit:
+            request_params["limit"] = limit
+        if sort:
+            request_params["sort"] = sort
+        if params:
+            request_params.update(params)
+        if resource == "orders":
+            logger.info(
+                "PrestaShop list_resource resource=%s params=%s",
+                resource,
+                request_params,
+            )
+        return await self._request("GET", resource, params=request_params)
+
+    async def get_resource(
+        self,
+        resource: str,
+        resource_id: int,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        return await self._request(
+            "GET",
+            f"{resource}/{resource_id}",
+            params=params,
+        )
+
+    async def search(
+        self,
+        *,
+        query: str,
+        language_id: int,
+    ) -> Any:
+        return await self._request(
+            "GET",
+            "search",
+            params={
+                "query": query,
+                "language": language_id,
+            },
+        )
+
+    async def get_binary(self, path: str) -> tuple[bytes, str]:
+        self._check_config()
+        url = urljoin(self.api_url, path.lstrip("/"))
+        client = self._shared_client()
+        start = monotonic()
+        response = await client.get(url)
+        self.prestashop_calls += 1
+        self.prestashop_time_ms += (monotonic() - start) * 1000
+        if response.status_code >= 400:
+            raise PrestaShopError(
+                f"Image PrestaShop introuvable ({response.status_code})."
+            )
+        return response.content, response.headers.get(
+            "content-type", "image/jpeg"
+        )
+
+    def reset_perf(self) -> None:
+        self.prestashop_calls = 0
+        self.prestashop_time_ms = 0.0
+
+    def _shared_client(self) -> httpx.AsyncClient:
+        self._check_config()
+        if self.__class__._client is None:
+            self.__class__._client = httpx.AsyncClient(
+                auth=self.auth,
+                timeout=httpx.Timeout(self.settings.prestashop_timeout_seconds),
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30.0,
+                ),
+            )
+        return self.__class__._client
+
+    @classmethod
+    async def close_shared_client(cls) -> None:
+        if cls._client is not None:
+            await cls._client.aclose()
+            cls._client = None

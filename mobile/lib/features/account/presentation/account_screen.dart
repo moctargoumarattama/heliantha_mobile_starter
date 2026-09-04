@@ -1,0 +1,438 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../shared/theme/app_colors.dart';
+import '../../../shared/widgets/app_ui.dart';
+import '../../../shared/widgets/brand_widgets.dart';
+import '../../auth/providers/auth_provider.dart';
+
+class AccountScreen extends ConsumerWidget {
+  const AccountScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(currentUserProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const HelianthaAppBarTitle(subtitle: 'Compte client'),
+      ),
+      body: user.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, __) => const _GuestView(),
+        data: (data) {
+          if (data == null) {
+            return const _GuestView();
+          }
+          final email = data['email']?.toString() ?? 'Client Heliantha';
+
+          return ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              ResponsivePagePadding(
+                bottom: 96,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _AccountHeader(email: email),
+                    const SizedBox(height: 16),
+                    _AccountActions(
+                      onOrders: () => context.push('/orders'),
+                      onAddresses: () => context.push('/addresses'),
+                      onLogout: () async {
+                        await ref.read(authRepositoryProvider).logout();
+                        ref.invalidate(currentUserProvider);
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                    const _ContactSection(),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AccountHeader extends StatelessWidget {
+  const _AccountHeader({required this.email});
+
+  final String email;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.navy,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const HelianthaLogo(size: 64, padding: 5, showShadow: true),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Compte client',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFFC9D7E2),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountActions extends StatelessWidget {
+  const _AccountActions({
+    required this.onOrders,
+    required this.onAddresses,
+    required this.onLogout,
+  });
+
+  final VoidCallback onOrders;
+  final VoidCallback onAddresses;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          _AccountTile(
+            icon: Icons.receipt_long_outlined,
+            title: 'Mes commandes',
+            subtitle: 'Historique et statut des commandes',
+            onTap: onOrders,
+          ),
+          const Divider(height: 1),
+          _AccountTile(
+            icon: Icons.location_on_outlined,
+            title: 'Mes adresses',
+            subtitle: 'Gérer vos informations de livraison',
+            onTap: onAddresses,
+          ),
+          const Divider(height: 1),
+          _AccountTile(
+            icon: Icons.logout_rounded,
+            title: 'Déconnexion',
+            subtitle: 'Quitter ce compte sur l’appareil',
+            danger: true,
+            onTap: onLogout,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountTile extends StatelessWidget {
+  const _AccountTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.danger = false,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool danger;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? AppColors.danger : AppColors.blue;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      onTap: onTap,
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: danger ? const Color(0xFFFFEFEF) : AppColors.softBlue,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: color, size: 22),
+      ),
+      title: Text(
+        title,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: danger ? AppColors.danger : AppColors.ink,
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: onTap == null
+          ? null
+          : Icon(
+              Icons.chevron_right_rounded,
+              color: danger ? AppColors.danger : AppColors.muted,
+            ),
+    );
+  }
+}
+
+class _GuestView extends StatelessWidget {
+  const _GuestView();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        ResponsivePagePadding(
+          bottom: 96,
+          child: Column(
+            children: [
+              const HelianthaLogo(size: 92, padding: 6, showShadow: true),
+              const SizedBox(height: 16),
+              AppStatusPanel(
+                icon: Icons.person_outline_rounded,
+                title: 'Bienvenue chez Heliantha',
+                message:
+                    'Connectez-vous avec votre compte client pour retrouver vos commandes.',
+                action: FilledButton.icon(
+                  onPressed: () => context.push('/login'),
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text('Se connecter'),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _ContactSection(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ContactSection extends StatelessWidget {
+  const _ContactSection();
+
+  static final Uri _phone = Uri(scheme: 'tel', path: '0530133583');
+  static final Uri _whatsapp = Uri.parse('https://wa.me/212661575128');
+  static final Uri _email = Uri(
+    scheme: 'mailto',
+    path: 'contact@heliantha.ma',
+  );
+  static final Uri _location = Uri.parse(
+    'https://maps.app.goo.gl/NjXA6uSfcy4WEFMu6',
+  );
+
+  Future<void> _open(BuildContext context, Uri uri) async {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible d’ouvrir ce lien.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Contact',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: AppColors.ink,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Notre équipe vous répond rapidement.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.muted,
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 12),
+        _ContactTile(
+          icon: Icons.phone_rounded,
+          title: 'Appeler',
+          value: '05 30 13 35 83',
+          subtitle: 'Numéro direct',
+          color: AppColors.danger,
+          onTap: () => _open(context, _phone),
+        ),
+        const SizedBox(height: 10),
+        _ContactTile(
+          icon: Icons.chat_bubble_rounded,
+          title: 'WhatsApp',
+          value: '+212 661-575128',
+          subtitle: 'Message rapide',
+          color: AppColors.leaf,
+          onTap: () => _open(context, _whatsapp),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Email',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: AppColors.muted,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 8),
+        _ContactTile(
+          icon: Icons.mail_rounded,
+          title: 'E-mail',
+          value: 'contact@heliantha.ma',
+          subtitle: 'Réponse par mail',
+          color: AppColors.blue,
+          onTap: () => _open(context, _email),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Localisation',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: AppColors.muted,
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+        const SizedBox(height: 8),
+        _ContactTile(
+          icon: Icons.location_on_rounded,
+          title: 'Nous trouver',
+          value: 'Ouvrir dans Google Maps',
+          subtitle: 'Itinéraire vers Heliantha',
+          color: AppColors.sun,
+          onTap: () => _open(context, _location),
+        ),
+      ],
+    );
+  }
+}
+
+class _ContactTile extends StatelessWidget {
+  const _ContactTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconColor = color == AppColors.sun ? AppColors.navy : color;
+
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: AppColors.blue,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.muted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.muted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
