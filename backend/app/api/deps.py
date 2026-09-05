@@ -7,6 +7,7 @@ from app.services.addresses import AddressesService
 from app.services.catalog import CatalogService
 from app.services.checkout import CheckoutService
 from app.services.home_slides import HomeSlidesService
+from app.services.notifications import NotificationService
 from app.services.orders import OrdersService
 from app.services.store_context import StoreContextService
 
@@ -39,8 +40,9 @@ def get_store_context_service(
 
 def get_addresses_service(
     ps: PrestaShopClient = Depends(get_ps_client),
+    bridge: PrestaShopBridgeClient = Depends(get_bridge_client),
 ) -> AddressesService:
-    return AddressesService(ps)
+    return AddressesService(ps, bridge)
 
 
 def get_home_slides_service(
@@ -63,3 +65,9 @@ def get_orders_service(
     bridge: PrestaShopBridgeClient = Depends(get_bridge_client),
 ) -> OrdersService:
     return OrdersService(ps, bridge)
+
+
+def get_notification_service(
+    settings: Settings = Depends(get_settings),
+) -> NotificationService:
+    return NotificationService(settings)

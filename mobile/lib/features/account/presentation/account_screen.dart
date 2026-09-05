@@ -1,12 +1,15 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../notifications/presentation/notification_bell.dart';
 
 class AccountScreen extends ConsumerWidget {
   const AccountScreen({super.key});
@@ -16,8 +19,9 @@ class AccountScreen extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Compte client'),
+      appBar: const AppTopBar(
+        subtitle: 'Compte client',
+        actions: [NotificationBell()],
       ),
       body: user.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -26,7 +30,15 @@ class AccountScreen extends ConsumerWidget {
           if (data == null) {
             return const _GuestView();
           }
-          final email = data['email']?.toString() ?? 'Client Heliantha';
+          final email = data['email']?.toString().trim() ?? '';
+          final firstname = data['firstname']?.toString().trim() ?? '';
+          final lastname = data['lastname']?.toString().trim() ?? '';
+          final fullName = [firstname, lastname]
+              .where((value) => value.isNotEmpty)
+              .join(' ');
+          final identity = fullName.isNotEmpty
+              ? fullName
+              : (email.isNotEmpty ? email : 'Compte Heliantha');
 
           return ListView(
             padding: EdgeInsets.zero,
@@ -36,14 +48,28 @@ class AccountScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _AccountHeader(email: email),
+                    _AccountHeader(
+                      email: email,
+                      identity: identity,
+                    ),
                     const SizedBox(height: 16),
+                    Text(
+                      'Espace client',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    const SizedBox(height: 10),
                     _AccountActions(
                       onOrders: () => context.push('/orders'),
                       onAddresses: () => context.push('/addresses'),
                       onLogout: () async {
                         await ref.read(authRepositoryProvider).logout();
                         ref.invalidate(currentUserProvider);
+                        if (context.mounted) {
+                          AppFeedback.info(context, 'À bientôt');
+                        }
                       },
                     ),
                     const SizedBox(height: 18),
@@ -60,46 +86,57 @@ class AccountScreen extends ConsumerWidget {
 }
 
 class _AccountHeader extends StatelessWidget {
-  const _AccountHeader({required this.email});
+  const _AccountHeader({
+    required this.email,
+    required this.identity,
+  });
 
   final String email;
+  final String identity;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.navy,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      backgroundColor: AppColors.navy,
+      borderColor: AppColors.navy,
+      radius: AppRadii.lg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const HelianthaLogo(size: 64, padding: 5, showShadow: true),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  email,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
+          Row(
+            children: [
+              const HelianthaLogo(size: 58, padding: 5, showShadow: true),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      identity,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    if (email.isNotEmpty && email != identity) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFFC9D7E2),
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  'Compte client',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFFC9D7E2),
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -120,90 +157,44 @@ class _AccountActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          _AccountTile(
+    return Column(
+      children: [
+        AppSurface(
+          padding: EdgeInsets.zero,
+          radius: AppRadii.lg,
+          shadow: true,
+          child: AppActionTile(
             icon: Icons.receipt_long_outlined,
             title: 'Mes commandes',
-            subtitle: 'Historique et statut des commandes',
+            subtitle: 'Suivi, montants et statuts',
             onTap: onOrders,
           ),
-          const Divider(height: 1),
-          _AccountTile(
+        ),
+        const SizedBox(height: 10),
+        AppSurface(
+          padding: EdgeInsets.zero,
+          radius: AppRadii.lg,
+          shadow: true,
+          child: AppActionTile(
             icon: Icons.location_on_outlined,
             title: 'Mes adresses',
-            subtitle: 'Gérer vos informations de livraison',
+            subtitle: 'Livraison et facturation',
             onTap: onAddresses,
           ),
-          const Divider(height: 1),
-          _AccountTile(
+        ),
+        const SizedBox(height: 10),
+        AppSurface(
+          padding: EdgeInsets.zero,
+          radius: AppRadii.lg,
+          child: AppActionTile(
             icon: Icons.logout_rounded,
             title: 'Déconnexion',
             subtitle: 'Quitter ce compte sur l’appareil',
             danger: true,
             onTap: onLogout,
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AccountTile extends StatelessWidget {
-  const _AccountTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.danger = false,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool danger;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? AppColors.danger : AppColors.blue;
-
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      onTap: onTap,
-      leading: Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          color: danger ? const Color(0xFFFFEFEF) : AppColors.softBlue,
-          borderRadius: BorderRadius.circular(8),
         ),
-        child: Icon(icon, color: color, size: 22),
-      ),
-      title: Text(
-        title,
-        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: danger ? AppColors.danger : AppColors.ink,
-              fontWeight: FontWeight.w900,
-            ),
-      ),
-      subtitle: Text(
-        subtitle,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: onTap == null
-          ? null
-          : Icon(
-              Icons.chevron_right_rounded,
-              color: danger ? AppColors.danger : AppColors.muted,
-            ),
+      ],
     );
   }
 }
@@ -259,9 +250,7 @@ class _ContactSection extends StatelessWidget {
   Future<void> _open(BuildContext context, Uri uri) async {
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Impossible d’ouvrir ce lien.')),
-      );
+      AppFeedback.error(context, 'Impossible d’ouvrir ce lien.');
     }
   }
 
@@ -363,75 +352,60 @@ class _ContactTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconColor = color == AppColors.sun ? AppColors.navy : color;
 
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      radius: AppRadii.lg,
+      onTap: onTap,
+      child: Row(
+        children: [
+          AppIconBadge(
+            icon: icon,
+            color: iconColor,
+            backgroundColor: color.withValues(alpha: 0.12),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.blue,
+                        fontWeight: FontWeight.w900,
+                      ),
                 ),
-                child: Icon(icon, color: iconColor, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title.toUpperCase(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: AppColors.blue,
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.ink,
-                            fontWeight: FontWeight.w900,
-                          ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.muted,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ],
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w900,
+                      ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: AppColors.muted,
-              ),
-            ],
+                const SizedBox(height: 1),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.muted,
+          ),
+        ],
       ),
     );
   }

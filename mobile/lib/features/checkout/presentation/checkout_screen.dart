@@ -2,15 +2,19 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
+import '../../../shared/models/address.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
+import '../../addresses/providers/addresses_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../domain/checkout_models.dart';
 import '../providers/checkout_provider.dart';
+
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -42,13 +46,24 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String? _message;
   int? _selectedCarrierId;
   String? _selectedPaymentModule;
+  int? _activeAddressId;
   late final String _idempotencyKey;
 
   @override
   void initState() {
     super.initState();
     _idempotencyKey = DateTime.now().microsecondsSinceEpoch.toString();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPreview());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final user = ref.read(currentUserProvider).valueOrNull;
+      if (user != null) {
+        final addresses = ref.read(addressesProvider).valueOrNull;
+        final firstAddress = addresses?.firstOrNull;
+        if (firstAddress != null) {
+          _activeAddressId = firstAddress.id;
+        }
+      }
+      _loadPreview(addressId: _activeAddressId);
+    });
   }
 
   @override
@@ -63,16 +78,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     super.dispose();
   }
 
-  void _loadPreview({int? carrierId, bool keepCarrier = false}) {
+  void _loadPreview({int? carrierId, int? addressId, bool keepCarrier = false}) {
     final lines = CheckoutLineRequest.fromCart(ref.read(cartProvider));
     setState(() {
       if (!keepCarrier) {
         _selectedCarrierId = carrierId;
       }
+      if (addressId != null) {
+        _activeAddressId = addressId;
+      }
       _selectedPaymentModule = null;
       _previewFuture = ref.read(checkoutRepositoryProvider).preview(
             lines: lines,
             carrierId: carrierId,
+            addressId: addressId ?? _activeAddressId,
           );
     });
   }
@@ -84,6 +103,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _previewFuture = ref.read(checkoutRepositoryProvider).preview(
             lines: CheckoutLineRequest.fromCart(ref.read(cartProvider)),
             carrierId: carrierId,
+            addressId: _activeAddressId,
           );
     });
   }
@@ -132,6 +152,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             password: _password.text,
           );
       ref.invalidate(currentUserProvider);
+      ref.invalidate(addressesProvider);
       setState(() => _message = 'Connexion réussie.');
     } catch (_) {
       setState(() => _message = 'Connexion impossible pour ce compte.');
@@ -142,7 +163,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     }
   }
 
-  Future<void> _confirm(CheckoutPreview preview) async {
+  Future<void> _confirm(
+    CheckoutPreview preview, {
+    required bool isConnected,
+    required AddressModel? userAddress,
+  }) async {
     if (_confirming || _orderConfirmed) {
       return;
     }
@@ -165,8 +190,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       setState(() => _message = 'Sélectionnez un moyen de paiement.');
       return;
     }
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      return;
+
+    if (isConnected) {
+      if (userAddress == null) {
+        setState(() =>
+            _message = 'Veuillez ajouter une adresse de livraison pour continuer.');
+        return;
+      }
+    } else {
+      if (!(_formKey.currentState?.validate() ?? false)) {
+        return;
+      }
     }
 
     setState(() {
@@ -175,11 +209,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     });
 
     try {
+      final effectiveMode = isConnected ? 'login' : _mode;
       final result = await ref.read(checkoutRepositoryProvider).confirm(
             lines: CheckoutLineRequest.fromCart(ref.read(cartProvider)),
-            mode: _mode,
+            mode: effectiveMode,
             idempotencyKey: _idempotencyKey,
-            guest: _mode == 'guest'
+            guest: !isConnected && effectiveMode == 'guest'
                 ? {
                     'title': _title,
                     'firstname': _firstname.text.trim(),
@@ -190,13 +225,17 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       'password': _password.text,
                   }
                 : null,
-            address: {
-              'firstname': _firstname.text.trim(),
-              'lastname': _lastname.text.trim(),
-              'address1': _address.text.trim(),
-              'city': _city.text.trim(),
-              if (_phone.text.trim().isNotEmpty) 'phone': _phone.text.trim(),
-            },
+            address: isConnected
+                ? null
+                : {
+                    'firstname': _firstname.text.trim(),
+                    'lastname': _lastname.text.trim(),
+                    'address1': _address.text.trim(),
+                    'city': _city.text.trim(),
+                    if (_phone.text.trim().isNotEmpty)
+                      'phone': _phone.text.trim(),
+                  },
+            addressId: isConnected ? userAddress?.id : null,
             carrierId: carrierId,
             paymentModule: paymentModule,
           );
@@ -277,10 +316,29 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     final cartItems = ref.watch(cartProvider);
+    final authState = ref.watch(currentUserProvider);
+    final user = authState.valueOrNull;
+    final isConnected = user != null;
+
+    final addressesAsync = isConnected ? ref.watch(addressesProvider) : null;
+    final userAddresses = addressesAsync?.valueOrNull;
+    final userAddress = userAddresses?.firstOrNull;
+
+    ref.listen(addressesProvider, (previous, next) {
+      final address = next.valueOrNull?.firstOrNull;
+      if (address != null && address.id != _activeAddressId) {
+        _loadPreview(
+          carrierId: _selectedCarrierId,
+          addressId: address.id,
+          keepCarrier: true,
+        );
+      }
+    });
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Checkout'),
+      appBar: const AppTopBar(
+        subtitle: 'Checkout',
+        showBack: true,
       ),
       body: SafeArea(
         child: cartItems.isEmpty
@@ -310,7 +368,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         message:
                             'Impossible de préparer le checkout PrestaShop.',
                         action: OutlinedButton.icon(
-                          onPressed: () => _loadPreview(),
+                          onPressed: () => _loadPreview(addressId: _activeAddressId),
                           icon: const Icon(Icons.refresh_rounded),
                           label: const Text('Réessayer'),
                         ),
@@ -330,43 +388,56 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _ModeSelector(
-                                mode: _mode,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _mode = value;
-                                    _message = null;
-                                  });
-                                },
-                              ),
-                              const SizedBox(height: 14),
-                              if (_mode == 'guest')
-                                _GuestStep(
-                                  title: _title,
-                                  firstname: _firstname,
-                                  lastname: _lastname,
-                                  email: _email,
-                                  password: _password,
-                                  createAccount: _createAccount,
-                                  onTitleChanged: (value) =>
-                                      setState(() => _title = value),
-                                  onCreateAccountChanged: (value) => setState(
-                                    () => _createAccount = value,
-                                  ),
-                                )
-                              else
-                                _LoginStep(
-                                  email: _email,
-                                  password: _password,
-                                  loading: _loginLoading,
-                                  onLogin: _login,
+                              if (!isConnected) ...[
+                                _ModeSelector(
+                                  mode: _mode,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _mode = value;
+                                      _message = null;
+                                    });
+                                  },
                                 ),
-                              const SizedBox(height: 14),
-                              _AddressStep(
-                                address: _address,
-                                city: _city,
-                                phone: _phone,
-                              ),
+                                const SizedBox(height: 14),
+                                if (_mode == 'guest')
+                                  _GuestStep(
+                                    title: _title,
+                                    firstname: _firstname,
+                                    lastname: _lastname,
+                                    email: _email,
+                                    password: _password,
+                                    createAccount: _createAccount,
+                                    onTitleChanged: (value) =>
+                                        setState(() => _title = value),
+                                    onCreateAccountChanged: (value) => setState(
+                                      () => _createAccount = value,
+                                    ),
+                                  )
+                                else
+                                  _LoginStep(
+                                    email: _email,
+                                    password: _password,
+                                    loading: _loginLoading,
+                                    onLogin: _login,
+                                  ),
+                                const SizedBox(height: 14),
+                                _AddressStep(
+                                  address: _address,
+                                  city: _city,
+                                  phone: _phone,
+                                ),
+                              ] else ...[
+                                _UsedAddressPanel(
+                                  address: userAddress,
+                                  isLoading: addressesAsync?.isLoading ?? false,
+                                  onManageAddress: () async {
+                                    await context.push('/addresses');
+                                    if (mounted) {
+                                      ref.invalidate(addressesProvider);
+                                    }
+                                  },
+                                ),
+                              ],
                               const SizedBox(height: 14),
                               _CheckoutOptions(
                                 preview: preview,
@@ -409,7 +480,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                                 child: FilledButton.icon(
                                   onPressed: _confirming || _orderConfirmed
                                       ? null
-                                      : () => _confirm(preview),
+                                      : () => _confirm(
+                                            preview,
+                                            isConnected: isConnected,
+                                            userAddress: userAddress,
+                                          ),
                                   icon: _confirming
                                       ? const SizedBox.square(
                                           dimension: 18,
@@ -668,7 +743,7 @@ class _CheckoutOptions extends StatelessWidget {
                 selected: payment.module == selectedPaymentModule,
                 icon: Icons.payments_rounded,
                 title: Text(payment.name),
-                subtitle: Text(payment.module),
+                subtitle: const Text('Disponible pour ce panier'),
                 onTap: () => onPaymentChanged(payment.module),
               ),
         ],
@@ -696,9 +771,18 @@ class _ChoiceLine extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(AppSpacing.md),
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.softBlue : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border: Border.all(
+            color: selected ? AppColors.blue : AppColors.border,
+          ),
+        ),
         child: Row(
           children: [
             Icon(icon, color: AppColors.blue),
@@ -760,13 +844,15 @@ class _OrderSuccessDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final total = result.total ?? fallbackTotal;
     final currency = result.currency ?? fallbackCurrency;
-    final formattedTotal = _money(total, currency);
+    final formattedTotal = formatMoney(total, currency: currency);
 
     return PopScope(
       canPop: false,
       child: Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 22),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(22),
           child: Column(
@@ -809,7 +895,7 @@ class _OrderSuccessDialog extends StatelessWidget {
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: AppColors.softBlue,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadii.md),
                 ),
                 child: Column(
                   children: [
@@ -908,12 +994,12 @@ class _CheckoutSummary extends StatelessWidget {
       title: 'Récapitulatif',
       child: Column(
         children: [
-          for (final line in preview.lines)
-            _LineStatus(line: line),
+          for (final line in preview.lines) _LineStatus(line: line),
           const Divider(height: 24),
           _SummaryRow(
             label: 'Sous-total',
-            value: _money(totals.subtotal, totals.currencySymbol),
+            value: formatMoney(totals.subtotal,
+                currency: totals.currency, symbol: totals.currencySymbol),
           ),
           const SizedBox(height: 8),
           _SummaryRow(label: 'Livraison', value: totals.shippingLabel),
@@ -921,13 +1007,15 @@ class _CheckoutSummary extends StatelessWidget {
             const SizedBox(height: 8),
             _SummaryRow(
               label: 'Réductions',
-              value: _money(totals.discounts, totals.currencySymbol),
+              value: formatMoney(totals.discounts,
+                  currency: totals.currency, symbol: totals.currencySymbol),
             ),
           ],
           const Divider(height: 24),
           _SummaryRow(
             label: 'Total TTC',
-            value: _money(totals.totalTtc, totals.currencySymbol),
+            value: formatMoney(totals.totalTtc,
+                currency: totals.currency, symbol: totals.currencySymbol),
             strong: true,
           ),
           const SizedBox(height: 6),
@@ -1015,14 +1103,9 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1070,7 +1153,7 @@ class _Notice extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.softSun,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: Text(
         message,
@@ -1119,10 +1202,183 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
-String _money(double value, String currency) {
-  return NumberFormat.currency(
-    locale: 'fr_FR',
-    symbol: '$currency ',
-    decimalDigits: 0,
-  ).format(value);
+class _UsedAddressPanel extends StatelessWidget {
+  const _UsedAddressPanel({
+    required this.address,
+    required this.isLoading,
+    required this.onManageAddress,
+  });
+
+  final AddressModel? address;
+  final bool isLoading;
+  final VoidCallback onManageAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: 'Adresse de livraison',
+      child: isLoading
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16.0),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          : address != null
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.softBlue,
+                            borderRadius: BorderRadius.circular(AppRadii.md),
+                          ),
+                          child: const Icon(
+                            Icons.location_on_rounded,
+                            color: AppColors.blue,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (address!.fullName.isNotEmpty)
+                                Text(
+                                  address!.fullName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.ink,
+                                      ),
+                                ),
+                              Text(
+                                address!.address1,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.ink,
+                                    ),
+                              ),
+                              if (address!.address2?.trim().isNotEmpty == true)
+                                Text(
+                                  address!.address2!,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: AppColors.muted),
+                                ),
+                              Text(
+                                [address!.postcode, address!.city]
+                                    .whereType<String>()
+                                    .where((s) => s.trim().isNotEmpty)
+                                    .join(' '),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.ink,
+                                    ),
+                              ),
+                              if (address!.phone?.trim().isNotEmpty == true ||
+                                  address!.phoneMobile?.trim().isNotEmpty ==
+                                      true) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.phone_rounded,
+                                      size: 14,
+                                      color: AppColors.muted,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      (address!.phoneMobile?.trim().isNotEmpty ==
+                                                  true
+                                              ? address!.phoneMobile
+                                              : address!.phone) ??
+                                          '',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(color: AppColors.muted),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: onManageAddress,
+                        icon: const Icon(
+                          Icons.edit_location_alt_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('Modifier mon adresse'),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.softSun,
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: AppColors.navy,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Aucune adresse enregistrée sur votre compte.',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.navy,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: onManageAddress,
+                        icon: const Icon(Icons.add_location_alt_rounded),
+                        label: const Text('Ajouter une adresse de livraison'),
+                      ),
+                    ),
+                  ],
+                ),
+    );
+  }
 }
+

@@ -14,12 +14,14 @@ final storeContextProvider = FutureProvider<StoreContext>(
 
 final selectedLanguageIdProvider =
     StateNotifierProvider<SelectedLanguageIdNotifier, int?>(
-  (ref) => SelectedLanguageIdNotifier(ref.watch(storeContextRepositoryProvider)),
+  (ref) =>
+      SelectedLanguageIdNotifier(ref.watch(storeContextRepositoryProvider)),
 );
 
 final selectedCurrencyIdProvider =
     StateNotifierProvider<SelectedCurrencyIdNotifier, int?>(
-  (ref) => SelectedCurrencyIdNotifier(ref.watch(storeContextRepositoryProvider)),
+  (ref) =>
+      SelectedCurrencyIdNotifier(ref.watch(storeContextRepositoryProvider)),
 );
 
 class SelectedLanguageIdNotifier extends StateNotifier<int?> {

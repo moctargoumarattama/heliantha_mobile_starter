@@ -1,11 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../shared/models/product.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/utils/money.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../cart/providers/cart_provider.dart';
@@ -27,8 +30,9 @@ class ProductScreen extends ConsumerWidget {
     final productAsync = ref.watch(productProvider(productId));
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Détail produit'),
+      appBar: const AppTopBar(
+        subtitle: 'Détail produit',
+        showBack: true,
       ),
       body: productAsync.when(
         loading: () => initialProduct == null
@@ -63,11 +67,11 @@ class _ProductBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final favorites = ref.watch(favoritesProvider);
     final isFavorite = favorites.contains(product.id);
-    final price = NumberFormat.currency(
-      locale: 'fr_FR',
-      symbol: '${product.currencySymbol} ',
-      decimalDigits: 0,
-    ).format(product.price);
+    final price = formatMoney(
+      product.price,
+      currency: product.currency,
+      symbol: product.currencySymbol,
+    );
     final description = _cleanText(
       product.descriptionShort?.isNotEmpty == true
           ? product.descriptionShort
@@ -93,15 +97,16 @@ class _ProductBody extends ConsumerWidget {
                 available: product.available,
                 isFavorite: isFavorite,
                 onToggleFavorite: () {
-                  ref
-                      .read(favoritesProvider.notifier)
-                      .toggle(product.id);
+                  ref.read(favoritesProvider.notifier).toggle(product.id);
                 },
                 onAddToCart: () {
                   ref.read(cartProvider.notifier).add(product);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Produit ajouté au panier.'),
+                  AppFeedback.success(
+                    context,
+                    'Ajouté au panier',
+                    action: SnackBarAction(
+                      label: 'Voir',
+                      onPressed: () => context.go('/cart'),
                     ),
                   );
                 },
@@ -170,28 +175,26 @@ class _ProductImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       height: height,
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: imageUrl == null
-          ? const _ProductImageFallback()
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: CachedNetworkImage(
-                imageUrl: absoluteApiUrl(imageUrl),
-                fit: BoxFit.contain,
-                placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator(),
+      child: AppSurface(
+        padding: const EdgeInsets.all(14),
+        radius: AppRadii.lg,
+        child: imageUrl == null
+            ? const _ProductImageFallback()
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+                child: CachedNetworkImage(
+                  imageUrl: absoluteApiUrl(imageUrl),
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                  errorWidget: (_, __, ___) => const _ProductImageFallback(),
                 ),
-                errorWidget: (_, __, ___) => const _ProductImageFallback(),
               ),
-            ),
+      ),
     );
   }
 }
@@ -232,14 +235,9 @@ class _ProductSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -318,14 +316,9 @@ class _TextPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -357,14 +350,9 @@ class _FeaturesPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

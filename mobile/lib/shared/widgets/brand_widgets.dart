@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/cart/providers/cart_provider.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 
 const helianthaLogoAsset = 'assets/brand/helin.jpeg';
 
@@ -25,20 +28,12 @@ class HelianthaLogo extends StatelessWidget {
       padding: EdgeInsets.all(padding),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         border: Border.all(color: AppColors.border),
-        boxShadow: showShadow
-            ? [
-                BoxShadow(
-                  color: AppColors.navy.withValues(alpha: 0.08),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ]
-            : null,
+        boxShadow: showShadow ? AppShadows.soft : null,
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
         child: Image.asset(
           helianthaLogoAsset,
           fit: BoxFit.contain,
@@ -47,6 +42,72 @@ class HelianthaLogo extends StatelessWidget {
             color: AppColors.blue,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
+  const AppTopBar({
+    super.key,
+    required this.subtitle,
+    this.showBack = false,
+    this.showCart = true,
+    this.actions = const [],
+  });
+
+  final String subtitle;
+  final bool showBack;
+  final bool showCart;
+  final List<Widget> actions;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return AppBar(
+      automaticallyImplyLeading: false,
+      leading: showBack
+          ? IconButton(
+              tooltip: 'Retour',
+              onPressed: () {
+                if (context.canPop()) {
+                  context.pop();
+                }
+              },
+              icon: const Icon(Icons.arrow_back_rounded),
+            )
+          : null,
+      title: HelianthaAppBarTitle(subtitle: subtitle),
+      actions: [
+        ...actions,
+        if (showCart) const AppCartButton(),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+}
+
+class AppCartButton extends ConsumerWidget {
+  const AppCartButton({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(
+      cartProvider.select(
+        (items) => items.fold<int>(0, (sum, item) => sum + item.quantity),
+      ),
+    );
+
+    return IconButton(
+      tooltip: 'Panier',
+      onPressed: () => context.go('/cart'),
+      icon: Badge(
+        isLabelVisible: count > 0,
+        backgroundColor: AppColors.danger,
+        label: Text(count > 9 ? '9+' : '$count'),
+        child: const Icon(Icons.shopping_cart_outlined),
       ),
     );
   }
@@ -68,7 +129,7 @@ class HelianthaAppBarTitle extends StatelessWidget {
         Tooltip(
           message: 'Accueil',
           child: InkWell(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.md),
             onTap: () => context.go('/'),
             child: const HelianthaLogo(size: 38, padding: 3),
           ),

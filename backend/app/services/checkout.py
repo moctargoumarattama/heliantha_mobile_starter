@@ -28,6 +28,9 @@ from app.services.normalizers import (
 )
 
 
+COUNTRY_DISPLAY = "[id,name,iso_code,active,deleted]"
+
+
 class CheckoutService:
     def __init__(
         self,
@@ -88,10 +91,12 @@ class CheckoutService:
             raise BridgeUnavailable("Bridge PrestaShop requis pour le checkout.")
 
         try:
+            morocco_country_id = await self._morocco_country_id()
             result = await self.bridge.post(
                 "checkout?action=preview",
                 {
                     **payload.model_dump(mode="json"),
+                    "morocco_country_id": morocco_country_id,
                     **({"customer_id": customer_id} if customer_id else {}),
                 },
             )
@@ -297,9 +302,49 @@ class CheckoutService:
             ),
             CheckoutFieldOut(name="postcode", label="Code postal", required=False),
             CheckoutFieldOut(name="city", label="Ville"),
-            CheckoutFieldOut(name="country_id", label="Pays", type="number"),
             CheckoutFieldOut(name="phone", label="Téléphone", required=False),
         ]
+
+    async def _morocco_country_id(self) -> int:
+        # Cache de classe pour éviter N appels PS par requête
+        cached = getattr(CheckoutService, "_morocco_id_cache", None)
+        if cached and cached[0] > 0:
+            from time import monotonic
+
+            if cached[0] > monotonic():
+                return cached[1]
+
+        from time import monotonic
+
+        now = monotonic()
+        # Pas de filter[active] ni filter[deleted] : ces filtres causent
+        # une erreur 500 "This filter does not exist" sur certaines configs PS.
+        # On récupère tous les pays sans filtre et on filtre iso_code == "MA" en Python.
+        try:
+            payload = await self.ps.list_resource(
+                "countries",
+                display="[id,iso_code,active]",
+                limit="0,250",
+                params={"language": self.settings.prestashop_language_id},
+            )
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).exception(
+                "checkout: erreur PrestaShop /countries lors de la recherche Maroc"
+            )
+            raise
+
+        for row in unwrap_collection(payload, "countries"):
+            country_id = to_int(row.get("id"))
+            iso_code = str(row.get("iso_code") or "").strip().upper()
+            if country_id and iso_code == "MA":
+                CheckoutService._morocco_id_cache = (
+                    now + 300,
+                    country_id,
+                )
+                return country_id
+        raise BridgeHTTPError(502, "Pays Maroc introuvable dans PrestaShop.")
 
     def _required_consents(self) -> list[CheckoutFieldOut]:
         return [
@@ -309,3 +354,4 @@ class CheckoutService:
                 type="checkbox",
             )
         ]
+

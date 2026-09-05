@@ -33,7 +33,8 @@ class AddressModel {
 
   String get fullName {
     return [firstname, lastname]
-        .where((value) => value != null && value!.trim().isNotEmpty)
+        .whereType<String>()
+        .where((value) => value.trim().isNotEmpty)
         .join(' ');
   }
 

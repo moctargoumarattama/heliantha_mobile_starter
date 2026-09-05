@@ -1,12 +1,14 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../shared/models/category.dart';
 import '../../../shared/models/product.dart';
 import '../../../shared/models/store_context.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../../shared/widgets/product_grid.dart';
@@ -18,10 +20,12 @@ class CatalogScreen extends ConsumerStatefulWidget {
     super.key,
     this.initialCategory,
     this.initialQuery,
+    this.openCategories = false,
   });
 
   final int? initialCategory;
   final String? initialQuery;
+  final bool openCategories;
 
   @override
   ConsumerState<CatalogScreen> createState() => _CatalogScreenState();
@@ -41,6 +45,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
   Object? _error;
   int _requestVersion = 0;
   Timer? _searchDebounce;
+  bool _openedCategoriesFromRoute = false;
 
   bool get _hasSearch => _search.text.trim().isNotEmpty;
   int? get _categoryFilter => widget.initialCategory;
@@ -59,6 +64,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _loadFirstPage();
+        _openCategoriesFromRouteIfNeeded();
       }
     });
   }
@@ -73,6 +79,12 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
       _searchDebounce?.cancel();
       _search.text = widget.initialQuery ?? '';
       _loadFirstPage();
+    }
+    if (!oldWidget.openCategories && widget.openCategories) {
+      _openedCategoriesFromRoute = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openCategoriesFromRouteIfNeeded();
+      });
     }
   }
 
@@ -226,11 +238,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Impossible de charger plus de produits.'),
-        ),
-      );
+      AppFeedback.error(context, 'Impossible de charger plus de produits.');
     } finally {
       if (mounted) {
         setState(() => _loadingMore = false);
@@ -243,17 +251,67 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
     _loadFirstPage();
   }
 
+  void _openCategoriesFromRouteIfNeeded() {
+    if (!mounted || !widget.openCategories || _openedCategoriesFromRoute) {
+      return;
+    }
+    _openedCategoriesFromRoute = true;
+    _openCategoryPicker();
+  }
+
+  Future<void> _openCategoryPicker() async {
+    final categories = await ref.read(categoriesProvider.future);
+    if (!mounted) {
+      return;
+    }
+    final selected = await showModalBottomSheet<int?>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CategoryPickerSheet(
+        categories: categories,
+        selectedCategoryId: _categoryFilter,
+      ),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (selected == -1) {
+      _goToCategory(null);
+    } else if (selected != null) {
+      _goToCategory(selected);
+    }
+  }
+
+  void _goToCategory(int? categoryId) {
+    final query = _queryFilter;
+    final params = <String, String>{};
+    if (categoryId != null) {
+      params['category'] = '$categoryId';
+    }
+    if (query != null) {
+      params['q'] = query;
+    }
+    final uri = Uri(
+      path: '/catalog',
+      queryParameters: params.isEmpty ? null : params,
+    );
+    context.go(uri.toString());
+  }
+
   @override
   Widget build(BuildContext context) {
     final products = _products ?? const <Product>[];
     final storeContext = ref.watch(storeContextProvider).valueOrNull;
+    final categories =
+        ref.watch(categoriesProvider).valueOrNull ?? const <Category>[];
+    final activeCategory = _activeCategory(categories);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(
-          subtitle: 'Catalogue solaire',
-        ),
-        actions: _contextActions(storeContext),
+      appBar: AppTopBar(
+        subtitle: 'Catalogue solaire',
+        actions: _contextActions(storeContext) ?? const [],
       ),
       body: SafeArea(
         child: ResponsivePagePadding(
@@ -266,7 +324,13 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
                 onClear: _clearSearch,
                 onSearch: _loadFirstPage,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
+              _CategoryFilterBar(
+                activeCategory: activeCategory,
+                onOpenCategories: _openCategoryPicker,
+                onClearCategory: () => _goToCategory(null),
+              ),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -280,7 +344,7 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
                   if (widget.initialCategory != null)
                     InfoPill(
                       icon: Icons.category_rounded,
-                      label: 'Catégorie sélectionnée',
+                      label: activeCategory?.name ?? 'Catégorie sélectionnée',
                       backgroundColor: AppColors.softSun,
                       foregroundColor: AppColors.navy,
                     ),
@@ -319,6 +383,19 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
         ),
       ),
     );
+  }
+
+  Category? _activeCategory(List<Category> categories) {
+    final id = _categoryFilter;
+    if (id == null) {
+      return null;
+    }
+    for (final category in categories) {
+      if (category.id == id) {
+        return category;
+      }
+    }
+    return null;
   }
 
   List<Widget>? _contextActions(StoreContext? context) {
@@ -374,6 +451,229 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
 
 String _productCountLabel(int count) {
   return count == 1 ? '1 produit' : '$count produits';
+}
+
+class _CategoryFilterBar extends StatelessWidget {
+  const _CategoryFilterBar({
+    required this.activeCategory,
+    required this.onOpenCategories,
+    required this.onClearCategory,
+  });
+
+  final Category? activeCategory;
+  final VoidCallback onOpenCategories;
+  final VoidCallback onClearCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: onOpenCategories,
+          icon: const Icon(Icons.grid_view_rounded, size: 18),
+          label: Text(activeCategory?.name ?? 'Catégories'),
+        ),
+        if (activeCategory != null)
+          InputChip(
+            avatar: const Icon(Icons.category_rounded, size: 16),
+            label: Text(
+              activeCategory!.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onDeleted: onClearCategory,
+            deleteIcon: const Icon(Icons.close_rounded, size: 18),
+            backgroundColor: AppColors.softSun,
+            labelStyle: const TextStyle(
+              color: AppColors.navy,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CategoryPickerSheet extends StatefulWidget {
+  const _CategoryPickerSheet({
+    required this.categories,
+    required this.selectedCategoryId,
+  });
+
+  final List<Category> categories;
+  final int? selectedCategoryId;
+
+  @override
+  State<_CategoryPickerSheet> createState() => _CategoryPickerSheetState();
+}
+
+class _CategoryPickerSheetState extends State<_CategoryPickerSheet> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canSearch = widget.categories.length > 8;
+    final query = _search.text.trim().toLowerCase();
+    final categories = query.isEmpty
+        ? widget.categories
+        : widget.categories
+            .where((category) => category.name.toLowerCase().contains(query))
+            .toList();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.42,
+      maxChildSize: 0.92,
+      builder: (context, controller) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 10, 8),
+                child: Row(
+                  children: [
+                    const AppIconBadge(icon: Icons.grid_view_rounded),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Catégories',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              color: AppColors.ink,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Fermer',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+              ),
+              if (canSearch)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                  child: TextField(
+                    controller: _search,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      hintText: 'Rechercher une catégorie...',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+                  children: [
+                    _CategoryChoiceTile(
+                      icon: Icons.all_inclusive_rounded,
+                      title: 'Tous les produits',
+                      selected: widget.selectedCategoryId == null,
+                      onTap: () => Navigator.of(context).pop(-1),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final category in categories)
+                      _CategoryChoiceTile(
+                        icon: _categoryIcon(category.name),
+                        title: category.name,
+                        selected: widget.selectedCategoryId == category.id,
+                        onTap: () => Navigator.of(context).pop(category.id),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  IconData _categoryIcon(String name) {
+    final value = name.toLowerCase();
+    if (value.contains('panneau')) return Icons.solar_power_rounded;
+    if (value.contains('onduleur')) return Icons.electric_bolt_rounded;
+    if (value.contains('batter')) return Icons.battery_charging_full_rounded;
+    if (value.contains('pompe')) return Icons.water_drop_rounded;
+    if (value.contains('groupe')) return Icons.power_rounded;
+    if (value.contains('éclairage') || value.contains('eclairage')) {
+      return Icons.lightbulb_outline_rounded;
+    }
+    return Icons.category_rounded;
+  }
+}
+
+class _CategoryChoiceTile extends StatelessWidget {
+  const _CategoryChoiceTile({
+    required this.icon,
+    required this.title,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      radius: 14,
+      backgroundColor: selected ? AppColors.softSun : AppColors.surface,
+      borderColor: selected ? AppColors.sun : AppColors.border,
+      onTap: onTap,
+      child: Row(
+        children: [
+          AppIconBadge(
+            icon: icon,
+            color: selected ? AppColors.navy : AppColors.blue,
+            backgroundColor: selected ? AppColors.sun : AppColors.softBlue,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+          ),
+          if (selected)
+            const Icon(Icons.check_circle_rounded, color: AppColors.navy),
+        ],
+      ),
+    );
+  }
 }
 
 class _CatalogSearchBar extends StatelessWidget {
@@ -445,11 +745,11 @@ class _CatalogContent extends StatelessWidget {
         child: AppStatusPanel(
           icon: Icons.cloud_off_rounded,
           title: 'Catalogue indisponible',
-          message: 'Veuillez réessayer dans quelques instants.',
+          message: 'Veuillez rÃ©essayer dans quelques instants.',
           action: OutlinedButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('Réessayer'),
+            label: const Text('RÃ©essayer'),
           ),
         ),
       );
@@ -459,7 +759,7 @@ class _CatalogContent extends StatelessWidget {
       return SingleChildScrollView(
         child: AppStatusPanel(
           icon: Icons.manage_search_rounded,
-          title: 'Aucun résultat',
+          title: 'Aucun rÃ©sultat',
           message: 'Essayez une autre recherche ou revenez plus tard.',
           action: OutlinedButton.icon(
             onPressed: onRetry,

@@ -414,3 +414,13 @@ uvicorn app.main:app --reload --port 8000
 
 cd C:\Users\hp\Desktop\heliantha_mobile_starter\mobile
 C:\Users\hp\Desktop\flutter\bin\flutter.bat run -d chrome --web-port=3000 --dart-define=API_BASE_URL=http://127.0.0.1:8000
+
+
+
+
+
+
+cd C:\Users\hp\Desktop\heliantha_mobile_starter\prestashop_bridge_example
+del helianthamobilebridge.zip
+tar -a -c -f helianthamobilebridge.zip helianthamobilebridge
+tar -tf helianthamobilebridge.zip

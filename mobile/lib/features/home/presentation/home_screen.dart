@@ -9,11 +9,13 @@ import 'package:go_router/go_router.dart';
 import '../../../shared/models/category.dart';
 import '../../../shared/models/home_slide.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../../shared/widgets/product_grid.dart';
 import '../../catalog/providers/catalog_providers.dart';
+import '../../notifications/presentation/notification_bell.dart';
 import '../providers/home_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -26,19 +28,9 @@ class HomeScreen extends ConsumerWidget {
     final slides = ref.watch(homeSlidesProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: const HelianthaAppBarTitle(
-          subtitle: 'Leader de l’énergie solaire au Maroc',
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'Panier',
-            onPressed: () => context.go('/cart'),
-            icon: const Icon(Icons.shopping_cart_outlined),
-          ),
-          const SizedBox(width: 8),
-        ],
+      appBar: const AppTopBar(
+        subtitle: 'Leader de lâ€™Ã©nergie solaire au Maroc',
+        actions: [NotificationBell()],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -81,10 +73,10 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 26),
                   AppSectionHeader(
-                    title: 'Catégories',
+                    title: 'CatÃ©gories',
                     subtitle: 'Retrouvez les familles produits du site.',
                     actionLabel: 'Voir tout',
-                    onAction: () => context.push('/catalog'),
+                    onAction: () => context.push('/catalog?categories=1'),
                   ),
                   const SizedBox(height: 12),
                   categories.when(
@@ -94,12 +86,12 @@ class HomeScreen extends ConsumerWidget {
                     ),
                     error: (_, __) => AppStatusPanel(
                       icon: Icons.wifi_off_rounded,
-                      title: 'Catégories indisponibles',
-                      message: 'Veuillez réessayer dans quelques instants.',
+                      title: 'CatÃ©gories indisponibles',
+                      message: 'Veuillez rÃ©essayer dans quelques instants.',
                       action: OutlinedButton.icon(
                         onPressed: () => ref.invalidate(categoriesProvider),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Réessayer'),
+                        label: const Text('RÃ©essayer'),
                       ),
                     ),
                     data: (items) => _CategoryRail(
@@ -112,7 +104,8 @@ class HomeScreen extends ConsumerWidget {
                   const SizedBox(height: 28),
                   AppSectionHeader(
                     title: 'Nos solutions solaires',
-                    subtitle: 'Des équipements sélectionnés pour vos projets.',
+                    subtitle:
+                        'Des Ã©quipements sÃ©lectionnÃ©s pour vos projets.',
                     actionLabel: 'Catalogue',
                     onAction: () => context.push('/catalog'),
                   ),
@@ -125,11 +118,11 @@ class HomeScreen extends ConsumerWidget {
                     error: (_, __) => AppStatusPanel(
                       icon: Icons.cloud_off_rounded,
                       title: 'Produits indisponibles',
-                      message: 'Veuillez réessayer dans quelques instants.',
+                      message: 'Veuillez rÃ©essayer dans quelques instants.',
                       action: OutlinedButton.icon(
                         onPressed: () => ref.invalidate(productsProvider),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Réessayer'),
+                        label: const Text('RÃ©essayer'),
                       ),
                     ),
                     data: (items) {
@@ -137,8 +130,7 @@ class HomeScreen extends ConsumerWidget {
                         return AppStatusPanel(
                           icon: Icons.inventory_2_outlined,
                           title: 'Aucun produit disponible',
-                          message:
-                              'Notre catalogue sera bientôt disponible.',
+                          message: 'Notre catalogue sera bientÃ´t disponible.',
                           action: OutlinedButton.icon(
                             onPressed: () => ref.invalidate(productsProvider),
                             icon: const Icon(Icons.refresh_rounded),
@@ -322,16 +314,17 @@ class _HomeSlideCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.lg),
             border: Border.all(color: AppColors.border),
+            boxShadow: AppShadows.soft,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.lg),
             child: slide.type == 'banner'
                 ? _SlideImage(
                     imageUrl: slide.imageUrl,
@@ -359,7 +352,7 @@ class _ProductSlide extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(10),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.md),
               child: ColoredBox(
                 color: AppColors.surface,
                 child: _SlideImage(
@@ -416,7 +409,7 @@ class _ProductSlide extends StatelessWidget {
                       height: 30,
                       decoration: BoxDecoration(
                         color: AppColors.sun,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
                       ),
                       child: const Icon(
                         Icons.arrow_forward_rounded,
@@ -506,7 +499,7 @@ class _SliderDots extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 3),
             decoration: BoxDecoration(
               color: i == index ? AppColors.blue : AppColors.border,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.sm),
             ),
           ),
       ],
@@ -523,7 +516,7 @@ class _HomeSliderLoading extends StatelessWidget {
       height: 244,
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
         border: Border.all(color: AppColors.border),
       ),
       child: const Center(child: CircularProgressIndicator()),
@@ -574,8 +567,8 @@ class _CategoryRail extends StatelessWidget {
     if (items.isEmpty) {
       return const AppStatusPanel(
         icon: Icons.category_outlined,
-        title: 'Aucune catégorie',
-        message: 'Nos familles de produits seront bientôt disponibles.',
+        title: 'Aucune catÃ©gorie',
+        message: 'Nos familles de produits seront bientÃ´t disponibles.',
       );
     }
 
@@ -594,15 +587,16 @@ class _CategoryRail extends StatelessWidget {
           return Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.lg),
               onTap: () => onTap(category.id),
               child: Container(
                 width: 122,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadii.lg),
                   border: Border.all(color: AppColors.border),
+                  boxShadow: AppShadows.soft,
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -612,7 +606,7 @@ class _CategoryRail extends StatelessWidget {
                       height: 42,
                       decoration: BoxDecoration(
                         color: soft,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(AppRadii.md),
                       ),
                       child: Icon(
                         _categoryIcon(category.name),
@@ -666,7 +660,7 @@ class _CategoryRail extends StatelessWidget {
     if (value.contains('monitor')) {
       return Icons.monitor_heart_outlined;
     }
-    if (value.contains('éclairage') || value.contains('eclairage')) {
+    if (value.contains('Ã©clairage') || value.contains('eclairage')) {
       return Icons.lightbulb_outline_rounded;
     }
 
@@ -703,7 +697,7 @@ class _SupportPanel extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.navy,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
       ),
       child: Row(
         children: [
@@ -712,7 +706,7 @@ class _SupportPanel extends StatelessWidget {
             height: 46,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadii.md),
             ),
             child: const Icon(
               Icons.support_agent_rounded,
@@ -734,7 +728,7 @@ class _SupportPanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Nos équipes vous accompagnent dans votre projet énergétique.',
+                  'Nos Ã©quipes vous accompagnent dans votre projet Ã©nergÃ©tique.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: const Color(0xFFC9D7E2),
                         height: 1.35,

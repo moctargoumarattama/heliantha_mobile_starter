@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../providers/auth_provider.dart';
@@ -50,9 +51,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           );
       ref.invalidate(currentUserProvider);
       if (mounted) context.go('/account');
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        setState(() => _error = e.toString());
+        setState(() => _error = 'Connexion impossible pour ce compte.');
       }
     } finally {
       if (mounted) {
@@ -64,8 +65,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Connexion client'),
+      appBar: const AppTopBar(
+        subtitle: 'Connexion client',
+        showBack: true,
       ),
       body: SafeArea(
         child: ListView(
@@ -119,13 +121,10 @@ class _LoginPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
+      shadow: true,
       child: AutofillGroup(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

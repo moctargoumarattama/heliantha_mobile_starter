@@ -11,6 +11,7 @@ from app.api.routes import (
     checkout,
     favorites,
     health,
+    notifications,
     orders,
 )
 from app.clients.prestashop import PrestaShopClient
@@ -54,6 +55,7 @@ app.include_router(catalog.router, prefix=settings.api_prefix)
 app.include_router(checkout.router, prefix=settings.api_prefix)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(orders.router, prefix=settings.api_prefix)
+app.include_router(notifications.router, prefix=settings.api_prefix)
 app.include_router(favorites.router, prefix=settings.api_prefix)
 
 

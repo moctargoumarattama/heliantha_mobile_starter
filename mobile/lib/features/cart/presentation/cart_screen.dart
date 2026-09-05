@@ -1,11 +1,14 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/utils/money.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../domain/cart_item.dart';
@@ -21,8 +24,9 @@ class CartScreen extends ConsumerWidget {
     final currency = items.isEmpty ? 'MAD' : items.first.product.currency;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Votre panier'),
+      appBar: const AppTopBar(
+        subtitle: 'Votre panier',
+        showCart: false,
       ),
       body: SafeArea(
         child: items.isEmpty
@@ -30,7 +34,8 @@ class CartScreen extends ConsumerWidget {
                 child: AppStatusPanel(
                   icon: Icons.shopping_bag_outlined,
                   title: 'Votre panier est vide',
-                  message: 'Ajoutez des produits depuis le catalogue Heliantha.',
+                  message:
+                      'Ajoutez des produits depuis le catalogue Heliantha.',
                   action: FilledButton.icon(
                     onPressed: () => context.go('/catalog'),
                     icon: const Icon(Icons.storefront_rounded),
@@ -132,8 +137,16 @@ class _CartItemCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final product = item.product;
-    final price = _money(product.price, product.currency);
-    final total = _money(item.total, product.currency);
+    final price = formatMoney(
+      product.price,
+      currency: product.currency,
+      symbol: product.currencySymbol,
+    );
+    final total = formatMoney(
+      item.total,
+      currency: product.currency,
+      symbol: product.currencySymbol,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -172,13 +185,9 @@ class _CartItemCard extends ConsumerWidget {
           ),
         );
 
-        return Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
+        return AppSurface(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          radius: AppRadii.lg,
           child: compact
               ? Column(
                   children: [
@@ -195,7 +204,7 @@ class _CartItemCard extends ConsumerWidget {
                       children: [
                         _QuantityStepper(item: item),
                         const Spacer(),
-                        _RemoveButton(productId: product.id),
+                        _RemoveButton(item: item),
                       ],
                     ),
                   ],
@@ -207,7 +216,7 @@ class _CartItemCard extends ConsumerWidget {
                     productInfo,
                     const SizedBox(width: 10),
                     _QuantityStepper(item: item),
-                    _RemoveButton(productId: product.id),
+                    _RemoveButton(item: item),
                   ],
                 ),
         );
@@ -223,30 +232,63 @@ class _CartProductImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final url = absoluteApiUrl(imageUrl);
+
     return Container(
       width: 74,
       height: 74,
       padding: const EdgeInsets.all(7),
       decoration: BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
-      child: imageUrl == null
-          ? const Icon(Icons.solar_power_rounded, color: AppColors.blue)
-          : ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: CachedNetworkImage(
-                imageUrl: absoluteApiUrl(imageUrl),
-                fit: BoxFit.contain,
-                errorWidget: (_, __, ___) => const Icon(
-                  Icons.solar_power_rounded,
-                  color: AppColors.blue,
-                ),
-              ),
-            ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        // Vérification AVANT tout chargement réseau : si URL vide/null,
+        // afficher le placeholder directement (évite texImage2D: no image).
+        child: url.isEmpty
+            ? const _CartImagePlaceholder()
+            : kIsWeb
+                ? Image.network(
+                    url,
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.contain,
+                    headers: const {'Accept': 'image/*'},
+                    loadingBuilder: (context, child, progress) =>
+                        progress == null ? child : const _CartImagePlaceholder(),
+                    errorBuilder: (_, __, ___) => const _CartImagePlaceholder(),
+                  )
+                : CachedNetworkImage(
+                    imageUrl: url,
+                    httpHeaders: const {'Accept': 'image/*'},
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.contain,
+                    placeholder: (_, __) => const _CartImagePlaceholder(),
+                    errorWidget: (_, __, ___) => const _CartImagePlaceholder(),
+                  ),
+      ),
     );
   }
 }
+
+/// Placeholder panier — cohérent avec le reste de l'app.
+class _CartImagePlaceholder extends StatelessWidget {
+  const _CartImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Icon(
+        Icons.solar_power_rounded,
+        size: 36,
+        color: AppColors.blue,
+      ),
+    );
+  }
+}
+
 
 class _QuantityStepper extends ConsumerWidget {
   const _QuantityStepper({required this.item});
@@ -258,8 +300,8 @@ class _QuantityStepper extends ConsumerWidget {
     return Container(
       height: 38,
       decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(8),
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.md),
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
@@ -322,16 +364,28 @@ class _StepButton extends StatelessWidget {
 }
 
 class _RemoveButton extends ConsumerWidget {
-  const _RemoveButton({required this.productId});
+  const _RemoveButton({required this.item});
 
-  final int productId;
+  final CartItem item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return IconButton(
       tooltip: 'Supprimer',
       onPressed: () {
-        ref.read(cartProvider.notifier).remove(productId);
+        ref.read(cartProvider.notifier).remove(item.product.id);
+        AppFeedback.info(
+          context,
+          'Produit retiré du panier',
+          action: SnackBarAction(
+            label: 'Annuler',
+            onPressed: () {
+              for (var i = 0; i < item.quantity; i++) {
+                ref.read(cartProvider.notifier).add(item.product);
+              }
+            },
+          ),
+        );
       },
       icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
     );
@@ -351,16 +405,11 @@ class _OrderSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalText = _money(total, currency);
+    final totalText = formatMoney(total, currency: currency);
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -373,11 +422,6 @@ class _OrderSummary extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           _SummaryRow(label: 'Produits', value: '$itemCount'),
-          const SizedBox(height: 8),
-          const _SummaryRow(
-            label: 'Livraison',
-            value: 'Calculée au checkout',
-          ),
           const Divider(height: 26),
           _SummaryRow(label: 'Total', value: totalText, strong: true),
           const SizedBox(height: 16),
@@ -429,12 +473,4 @@ class _SummaryRow extends StatelessWidget {
       ],
     );
   }
-}
-
-String _money(double value, String currency) {
-  return NumberFormat.currency(
-    locale: 'fr_FR',
-    symbol: '$currency ',
-    decimalDigits: 0,
-  ).format(value);
 }

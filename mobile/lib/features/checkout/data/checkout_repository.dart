@@ -11,12 +11,14 @@ class CheckoutRepository {
   Future<CheckoutPreview> preview({
     required List<CheckoutLineRequest> lines,
     int? carrierId,
+    int? addressId,
   }) async {
     final response = await _api.dio.post(
       '/v1/checkout/preview',
       data: {
         'lines': [for (final line in lines) line.toJson()],
         if (carrierId != null) 'carrier_id': carrierId,
+        if (addressId != null) 'address_id': addressId,
       },
     );
     return CheckoutPreview.fromJson(
@@ -30,6 +32,7 @@ class CheckoutRepository {
     required String idempotencyKey,
     Map<String, dynamic>? guest,
     Map<String, dynamic>? address,
+    int? addressId,
     int? carrierId,
     String? paymentModule,
   }) async {
@@ -39,9 +42,11 @@ class CheckoutRepository {
       'idempotency_key': idempotencyKey,
       if (guest != null) 'guest': guest,
       if (address != null) 'address': address,
+      if (addressId != null) 'address_id': addressId,
       if (carrierId != null) 'carrier_id': carrierId,
       if (paymentModule != null) 'payment_module': paymentModule,
     };
+
 
     try {
       final response = await _api.dio.post('/v1/checkout/confirm', data: body);

@@ -1,14 +1,17 @@
-import 'package:cached_network_image/cached_network_image.dart';
+﻿import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../features/cart/providers/cart_provider.dart';
 import '../../features/favorites/providers/favorites_provider.dart';
 import '../models/product.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 import '../utils/api_url.dart';
+import '../utils/money.dart';
+import 'app_feedback.dart';
 
 class ProductCard extends ConsumerWidget {
   const ProductCard({
@@ -24,32 +27,26 @@ class ProductCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final favorites = ref.watch(favoritesProvider);
     final isFavorite = favorites.contains(product.id);
-    final price = NumberFormat.currency(
-      locale: 'fr_FR',
-      symbol: '',
-      decimalDigits: 0,
-    ).format(product.price);
+    final price = formatMoney(
+      product.price,
+      currency: product.currency,
+      symbol: product.currencySymbol,
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
         border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.navy.withValues(alpha: 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: AppShadows.soft,
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadii.lg),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(AppSpacing.md),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -61,8 +58,8 @@ class ProductCard extends ConsumerWidget {
                           clipBehavior: Clip.antiAlias,
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                            color: AppColors.background,
-                            borderRadius: BorderRadius.circular(8),
+                            color: AppColors.surfaceMuted,
+                            borderRadius: BorderRadius.circular(AppRadii.md),
                           ),
                           child: _ProductCardImage(imageUrl: product.imageUrl),
                         ),
@@ -101,7 +98,7 @@ class ProductCard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  '$price ${product.currencySymbol}',
+                  price,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -153,9 +150,12 @@ class ProductCard extends ConsumerWidget {
 
   void _addToCart(BuildContext context, WidgetRef ref) {
     ref.read(cartProvider.notifier).add(product);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Produit ajouté au panier'),
+    AppFeedback.success(
+      context,
+      'Ajouté au panier',
+      action: SnackBarAction(
+        label: 'Voir',
+        onPressed: () => context.go('/cart'),
       ),
     );
   }
@@ -178,7 +178,7 @@ class _AvailabilityPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: available ? AppColors.softLeaf : const Color(0xFFFFEFEF),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -223,7 +223,7 @@ class _ProductCardImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: Transform.scale(
-        scale: 1.08,
+        scale: 1.00,
         child: kIsWeb
             ? Image.network(
                 url,
@@ -291,7 +291,7 @@ class _CartButton extends StatelessWidget {
           disabledBackgroundColor: AppColors.border,
           disabledForegroundColor: AppColors.muted,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.sm),
           ),
         ),
         onPressed: enabled ? onPressed : null,
@@ -325,7 +325,7 @@ class _RoundIconButton extends StatelessWidget {
           backgroundColor: AppColors.surface,
           foregroundColor: color,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.md),
           ),
         ),
         onPressed: onPressed,

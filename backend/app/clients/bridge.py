@@ -17,10 +17,18 @@ class BridgeUnavailable(RuntimeError):
 
 class BridgeHTTPError(RuntimeError):
     def __init__(self, status_code: int, detail: str, body: str | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        detail: str,
+        body: str | None = None,
+        code: str | None = None,
+    ):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
         self.body = body
+        self.code = code
 
 
 class PrestaShopBridgeClient:
@@ -62,6 +70,20 @@ class PrestaShopBridgeClient:
             try:
                 logger.info("Bridge request method=POST url=%s", url)
                 response = await client.post(url, json=payload, headers=headers)
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "Bridge timeout method=POST url=%s type=%s",
+                    url,
+                    type(exc).__name__,
+                )
+                raise
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "Bridge request error method=POST url=%s type=%s",
+                    url,
+                    type(exc).__name__,
+                )
+                raise
             except Exception as exc:
                 logger.exception(
                     "Bridge exception method=POST url=%s type=%s",
@@ -77,14 +99,32 @@ class PrestaShopBridgeClient:
             response.text[:2000],
         )
         if response.status_code >= 400:
+            error_code = "BRIDGE_ERROR"
+            clean_message = f"Erreur PrestaShop (HTTP {response.status_code})"
             try:
                 detail = response.json()
+                data = response.json()
+                if isinstance(data, dict) and "error" in data:
+                    err = data["error"]
+                    if isinstance(err, dict):
+                        error_code = str(err.get("code") or error_code)
+                        clean_message = str(err.get("message") or clean_message)
+                    elif isinstance(err, str):
+                        clean_message = err
+                elif isinstance(data, dict) and "message" in data:
+                    clean_message = str(data["message"])
             except Exception:
                 detail = response.text[:500]
+                clean_message = "Erreur serveur PrestaShop temporaire."
+
             raise BridgeHTTPError(
                 response.status_code,
                 f"Pont PrestaShop: HTTP {response.status_code} - {detail}",
                 response.text[:2000],
+                status_code=response.status_code,
+                detail=clean_message,
+                body=response.text[:2000],
+                code=error_code,
             )
         try:
             return response.json()
@@ -99,4 +139,8 @@ class PrestaShopBridgeClient:
                 response.status_code,
                 f"Pont PrestaShop: JSON invalide - {type(exc).__name__}",
                 response.text[:2000],
+                status_code=response.status_code,
+                detail="Réponse JSON invalide du serveur PrestaShop.",
+                body=response.text[:2000],
+                code="INVALID_JSON",
             ) from exc

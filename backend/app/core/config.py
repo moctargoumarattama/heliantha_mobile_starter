@@ -1,10 +1,21 @@
+import logging
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+INSECURE_JWT_PLACEHOLDERS = {
+    "",
+    "change_me",
+    "change_me_with_a_long_random_secret",
+    "secret",
+    "jwt_secret",
+    "your_secret_here",
+}
 
 
 class Settings(BaseSettings):
@@ -30,6 +41,20 @@ class Settings(BaseSettings):
     mobile_bridge_secret: str = ""
     checkout_write_enabled: bool = False
 
+    notification_db_path: str = str(BACKEND_DIR / "heliantha_notifications.sqlite3")
+    notifications_db_path: str = Field(
+        default="./heliantha_notifications.sqlite3",
+        validation_alias=AliasChoices(
+            "NOTIFICATIONS_DB_PATH",
+            "NOTIFICATION_DB_PATH",
+            "notifications_db_path",
+            "notification_db_path",
+        ),
+    )
+    firebase_project_id: str = ""
+    google_application_credentials: str = ""
+    notification_webhook_secret: str = ""
+
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(
@@ -39,9 +64,51 @@ class Settings(BaseSettings):
     )
 
     @property
+    def resolved_notification_db_path(self) -> Path:
+        raw = (self.notifications_db_path or "").strip()
+        p = Path(raw) if raw else Path("./heliantha_notifications.sqlite3")
+        if not p.is_absolute():
+            return (BACKEND_DIR / p).resolve()
+        return p.resolve()
+
+    @property
+    def notification_db_path(self) -> str:
+        return str(self.resolved_notification_db_path)
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
 
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        secret = (self.jwt_secret or "").strip()
+        is_prod = self.app_env.strip().lower() in {"production", "prod"}
+        is_placeholder = (
+            secret.lower() in INSECURE_JWT_PLACEHOLDERS
+            or "change_me" in secret.lower()
+        )
+
+        if is_prod:
+            if not secret:
+                raise ValueError(
+                    "Configuration invalide en production : JWT_SECRET est obligatoire."
+                )
+            if is_placeholder:
+                raise ValueError(
+                    "Configuration invalide en production : JWT_SECRET ne peut pas être une valeur par défaut ou un placeholder."
+                )
+            if len(secret) < 32:
+                raise ValueError(
+                    "Configuration invalide en production : JWT_SECRET trop faible (minimum 32 caractères requis)."
+                )
+        else:
+            if not secret or is_placeholder or len(secret) < 32:
+                logging.getLogger("app.core.config").warning(
+                    "AVERTISSEMENT SÉCURITÉ : JWT_SECRET faible ou par défaut utilisé en environnement de développement. "
+                    "Définissez une clé sécurisée pour la production."
+                )
+
+        return self
 
 
 @lru_cache

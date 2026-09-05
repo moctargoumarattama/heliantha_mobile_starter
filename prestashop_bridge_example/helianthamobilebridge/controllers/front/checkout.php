@@ -381,9 +381,10 @@ class HelianthaMobileBridgeCheckoutModuleFrontController
             }
         }
 
-        if ($persistAddress) {
+        if ($persistAddress && (int) $cart->id_address_delivery <= 0) {
             $this->attachAddress($cart, $customer, $body);
         }
+
         $this->applyCarrierIfProvided($cart, $body);
 
         return $cart;
@@ -414,6 +415,31 @@ class HelianthaMobileBridgeCheckoutModuleFrontController
             );
         }
 
+        $country = new Country((int) $address->id_country);
+        if (!Validate::isLoadedObject($country)
+            || !(bool) $country->active
+            || strtoupper(trim((string) $country->iso_code)) !== 'MA') {
+            $this->fail(
+                422,
+                'COUNTRY_NOT_ALLOWED',
+                'Seules les adresses au Maroc sont acceptées.'
+            );
+        }
+
+        // Compléter uniquement si vide depuis customer, sans écraser si déjà présent
+        $needsUpdate = false;
+        if (trim((string) $address->firstname) === '' && Validate::isLoadedObject($customer)) {
+            $address->firstname = trim((string) $customer->firstname);
+            $needsUpdate = true;
+        }
+        if (trim((string) $address->lastname) === '' && Validate::isLoadedObject($customer)) {
+            $address->lastname = trim((string) $customer->lastname);
+            $needsUpdate = true;
+        }
+        if ($needsUpdate) {
+            $address->update();
+        }
+
         $cart->id_address_delivery = (int) $address->id;
         $cart->id_address_invoice = (int) $address->id;
     }
@@ -421,16 +447,42 @@ class HelianthaMobileBridgeCheckoutModuleFrontController
     private function attachAddress($cart, $customer, $body)
     {
         $data = is_array($body['address'] ?? null) ? $body['address'] : [];
+        $moroccoCountryId = $this->moroccoCountryIdFromBody($body);
+        $requestedCountryId = (int) ($data['country_id'] ?? 0);
+        if ($requestedCountryId > 0 && $requestedCountryId !== $moroccoCountryId) {
+            $this->fail(
+                422,
+                'COUNTRY_NOT_ALLOWED',
+                'Seules les adresses au Maroc sont acceptées.'
+            );
+        }
         $address = new Address();
         $address->id_customer = (int) $customer->id;
-        $address->firstname = (string) ($data['firstname'] ?? $customer->firstname);
-        $address->lastname = (string) ($data['lastname'] ?? $customer->lastname);
+
+        $firstname = trim((string) ($data['firstname'] ?? ''));
+        if ($firstname === '' && Validate::isLoadedObject($customer)) {
+            $firstname = trim((string) $customer->firstname);
+        }
+        if ($firstname === '') {
+            $firstname = 'Client';
+        }
+
+        $lastname = trim((string) ($data['lastname'] ?? ''));
+        if ($lastname === '' && Validate::isLoadedObject($customer)) {
+            $lastname = trim((string) $customer->lastname);
+        }
+        if ($lastname === '') {
+            $lastname = 'Heliantha';
+        }
+
+        $address->firstname = $firstname;
+        $address->lastname = $lastname;
         $address->address1 = (string) ($data['address1'] ?? '');
         $address->address2 = (string) ($data['address2'] ?? '');
         $address->postcode = (string) ($data['postcode'] ?? '');
         $address->city = (string) ($data['city'] ?? '');
         $address->phone = (string) ($data['phone'] ?? '');
-        $address->id_country = (int) ($data['country_id'] ?? Configuration::get('PS_COUNTRY_DEFAULT'));
+        $address->id_country = $moroccoCountryId;
         $address->alias = 'Adresse mobile';
         $address->add();
 
@@ -438,6 +490,26 @@ class HelianthaMobileBridgeCheckoutModuleFrontController
         $cart->id_address_invoice = (int) $address->id;
         $cart->update();
     }
+
+
+    private function moroccoCountryIdFromBody($body)
+    {
+        $countryId = (int) ($body['morocco_country_id'] ?? 0);
+        if ($countryId > 0) {
+            $country = new Country($countryId);
+            if (Validate::isLoadedObject($country) && (bool) $country->active) {
+                return $countryId;
+            }
+        }
+
+        $id = (int) Country::getByIso('MA');
+        if ($id > 0) {
+            return $id;
+        }
+
+        $this->fail(422, 'MISSING_MOROCCO_COUNTRY', 'Pays Maroc absent.');
+    }
+
 
     private function applyCarrierIfProvided($cart, $body)
     {

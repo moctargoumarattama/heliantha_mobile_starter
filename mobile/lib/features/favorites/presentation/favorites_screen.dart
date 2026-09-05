@@ -2,11 +2,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
 import '../../../shared/models/product.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/utils/money.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../catalog/providers/catalog_providers.dart';
@@ -20,8 +22,8 @@ class FavoritesScreen extends ConsumerWidget {
     final ids = ref.watch(favoritesProvider).toList()..sort();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const HelianthaAppBarTitle(subtitle: 'Vos favoris'),
+      appBar: const AppTopBar(
+        subtitle: 'Vos favoris',
       ),
       body: SafeArea(
         child: ids.isEmpty
@@ -113,15 +115,15 @@ class _FavoriteProductTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final price = NumberFormat.currency(
-      locale: 'fr_FR',
-      symbol: '${product.currency} ',
-      decimalDigits: 0,
-    ).format(product.price);
+    final price = formatMoney(
+      product.price,
+      currency: product.currency,
+      symbol: product.currencySymbol,
+    );
 
     return _FavoriteShell(
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
         onTap: () => context.push('/product/${product.id}'),
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -158,6 +160,16 @@ class _FavoriteProductTile extends ConsumerWidget {
                 tooltip: 'Retirer des favoris',
                 onPressed: () {
                   ref.read(favoritesProvider.notifier).toggle(product.id);
+                  AppFeedback.info(
+                    context,
+                    'Retiré des favoris',
+                    action: SnackBarAction(
+                      label: 'Annuler',
+                      onPressed: () {
+                        ref.read(favoritesProvider.notifier).toggle(product.id);
+                      },
+                    ),
+                  );
                 },
                 icon: const Icon(Icons.favorite, color: AppColors.danger),
               ),
@@ -176,13 +188,9 @@ class _FavoriteShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
+    return AppSurface(
+      padding: EdgeInsets.zero,
+      radius: AppRadii.lg,
       child: child,
     );
   }
@@ -201,7 +209,7 @@ class _FavoriteImage extends StatelessWidget {
       padding: const EdgeInsets.all(7),
       decoration: BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: imageUrl == null
           ? const Icon(Icons.solar_power_rounded, color: AppColors.blue)

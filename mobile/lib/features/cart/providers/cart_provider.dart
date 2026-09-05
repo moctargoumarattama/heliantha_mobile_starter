@@ -39,11 +39,14 @@ class CartNotifier extends StateNotifier<List<CartItem>> {
   void clear() => state = const [];
 }
 
-final cartProvider =
-    StateNotifierProvider<CartNotifier, List<CartItem>>(
+final cartProvider = StateNotifierProvider<CartNotifier, List<CartItem>>(
   (ref) => CartNotifier(),
 );
 
 final cartTotalProvider = Provider<double>(
   (ref) => ref.watch(cartProvider).fold(0, (sum, item) => sum + item.total),
+);
+
+final cartItemCountProvider = Provider<int>(
+  (ref) => ref.watch(cartProvider).fold(0, (sum, item) => sum + item.quantity),
 );

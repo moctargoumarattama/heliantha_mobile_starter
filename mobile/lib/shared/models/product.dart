@@ -55,8 +55,8 @@ class Product {
       name: (json['name'] ?? '').toString(),
       price: (json['price'] as num? ?? 0).toDouble(),
       currency: (json['currency'] ?? 'MAD').toString(),
-      currencySymbol: (json['currency_symbol'] ?? json['currency'] ?? 'MAD')
-          .toString(),
+      currencySymbol:
+          (json['currency_symbol'] ?? json['currency'] ?? 'MAD').toString(),
       currencyId: (json['currency_id'] as num?)?.toInt(),
       available: json['available'] == true,
       reference: json['reference']?.toString(),

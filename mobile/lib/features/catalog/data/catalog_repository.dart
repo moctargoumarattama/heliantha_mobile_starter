@@ -28,10 +28,8 @@ class CatalogRepository {
       },
     );
     final data = response.data['data'] as List<dynamic>? ?? [];
-    final rows = data
-        .whereType<Map<String, dynamic>>()
-        .map(Category.fromJson)
-        .toList();
+    final rows =
+        data.whereType<Map<String, dynamic>>().map(Category.fromJson).toList();
     _categoriesCache = _CacheEntry(
       rows,
       DateTime.now().add(_categoriesCacheTtl),
@@ -72,10 +70,8 @@ class CatalogRepository {
       },
     );
     final data = response.data['data'] as List<dynamic>? ?? [];
-    final rows = data
-        .whereType<Map<String, dynamic>>()
-        .map(Product.fromJson)
-        .toList();
+    final rows =
+        data.whereType<Map<String, dynamic>>().map(Product.fromJson).toList();
     _productsCache[key] = _CacheEntry(
       rows,
       DateTime.now().add(_cacheTtl),
