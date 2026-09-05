@@ -7,6 +7,7 @@ from typing import Any
 from app.clients.bridge import BridgeHTTPError, PrestaShopBridgeClient
 from app.clients.prestashop import PrestaShopClient, PrestaShopError
 from app.schemas.address import AddressIn, AddressOut, CountryOut
+from app.services.geo import get_morocco_country_id
 from app.services.normalizers import localized, to_bool, to_int, unwrap_collection
 
 
@@ -263,39 +264,10 @@ class AddressesService:
         return data
 
     async def _morocco_country_id(self) -> int:
-        now = monotonic()
-        cached = self.__class__._morocco_country_cache
-        if cached and cached[0] > now:
-            return cached[1]
-
-        logger.info("Recherche id_country Maroc dans PrestaShop (sans filtre PS).")
         try:
-            payload = await self.ps.list_resource(
-                "countries",
-                display="[id,iso_code,active]",
-                limit="0,250",
-                params={"language": self.ps.settings.prestashop_language_id},
-            )
-        except Exception:
-            logger.exception("Erreur PrestaShop lors de la récupération des pays.")
-            raise
-
-        for row in unwrap_collection(payload, "countries"):
-            country_id = to_int(row.get("id"))
-            iso_code = str(row.get("iso_code") or "").strip().upper()
-            if country_id and iso_code == "MA":
-                logger.info(
-                    "Maroc trouvé : id_country=%s iso_code=%s",
-                    country_id,
-                    iso_code,
-                )
-                self.__class__._morocco_country_cache = (
-                    now + COUNTRY_CACHE_TTL_SECONDS,
-                    country_id,
-                )
-                return country_id
-
-        raise BridgeHTTPError(502, "Pays Maroc introuvable dans PrestaShop.")
+            return await get_morocco_country_id(self.ps, self.ps.settings.prestashop_language_id)
+        except Exception as exc:
+            raise BridgeHTTPError(502, "Pays Maroc introuvable dans PrestaShop.") from exc
 
     def _optional(self, value: Any) -> str | None:
         text = str(value or "").strip()

@@ -41,7 +41,6 @@ class Settings(BaseSettings):
     mobile_bridge_secret: str = ""
     checkout_write_enabled: bool = False
 
-    notification_db_path: str = str(BACKEND_DIR / "heliantha_notifications.sqlite3")
     notifications_db_path: str = Field(
         default="./heliantha_notifications.sqlite3",
         validation_alias=AliasChoices(
@@ -77,7 +76,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        raw_list = [x.strip() for x in self.cors_origins.split(",") if x.strip()]
+        is_prod = self.app_env.strip().lower() in {"production", "prod"}
+        if not is_prod:
+            dev_defaults = [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:8000",
+                "http://127.0.0.1:8000",
+                "http://localhost:8080",
+                "http://127.0.0.1:8080",
+            ]
+            for origin in dev_defaults:
+                if origin not in raw_list:
+                    raw_list.append(origin)
+        return [origin for origin in raw_list if origin != "*"]
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

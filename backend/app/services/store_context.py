@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from time import monotonic
 from typing import Any
 
 from app.clients.prestashop import PrestaShopClient
 from app.core.config import Settings
+from app.core.single_flight import single_flight
 from app.schemas.store import CurrencyOut, LanguageOut, StoreContextOut
 from app.services.normalizers import localized, to_bool, to_float, to_int
 from app.services.normalizers import unwrap_collection
@@ -16,6 +18,7 @@ STORE_CONTEXT_CACHE_TTL_SECONDS = 300
 class StoreContextService:
     _languages_cache: tuple[float, list[LanguageOut]] | None = None
     _currencies_cache: tuple[float, list[CurrencyOut]] | None = None
+    _store_context_cache: tuple[float, StoreContextOut] | None = None
 
     def __init__(
         self,
@@ -26,25 +29,45 @@ class StoreContextService:
         self.settings = settings
 
     async def context(self) -> StoreContextOut:
-        languages = await self.active_languages()
-        currencies = await self.active_currencies()
+        now = monotonic()
+        cached = self.__class__._store_context_cache
+        if cached and cached[0] > now:
+            return cached[1]
 
-        return StoreContextOut(
-            language={
-                "default_id": self.default_language_id(languages),
-                "available": [
-                    language.model_dump()
-                    for language in languages
-                ],
-            },
-            currency={
-                "default_id": self.default_currency_id(currencies),
-                "available": [
-                    currency.model_dump()
-                    for currency in currencies
-                ],
-            },
-        )
+        async def _fetch() -> StoreContextOut:
+            now_inner = monotonic()
+            cached_inner = self.__class__._store_context_cache
+            if cached_inner and cached_inner[0] > now_inner:
+                return cached_inner[1]
+
+            languages, currencies = await asyncio.gather(
+                self.active_languages(),
+                self.active_currencies(),
+            )
+
+            ctx = StoreContextOut(
+                language={
+                    "default_id": self.default_language_id(languages),
+                    "available": [
+                        language.model_dump()
+                        for language in languages
+                    ],
+                },
+                currency={
+                    "default_id": self.default_currency_id(currencies),
+                    "available": [
+                        currency.model_dump()
+                        for currency in currencies
+                    ],
+                },
+            )
+            self.__class__._store_context_cache = (
+                now_inner + STORE_CONTEXT_CACHE_TTL_SECONDS,
+                ctx,
+            )
+            return ctx
+
+        return await single_flight.execute("store_context", _fetch)
 
     async def active_languages(self) -> list[LanguageOut]:
         now = monotonic()

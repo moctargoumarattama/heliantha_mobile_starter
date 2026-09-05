@@ -120,26 +120,7 @@ async def checkout_preview(
             "meta": None,
             "error": None,
         }
-    except BridgeUnavailable as exc:
-        logger.warning("checkout/preview bridge indisponible: %s", exc)
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
-    except BridgeHTTPError as exc:
-        logger.warning(
-            "checkout/preview bridge HTTP %s : %s",
-            exc.status_code,
-            exc.detail,
-        )
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except Exception as exc:
-        logger.exception(
-            "checkout/preview erreur inattendue type=%s msg=%s",
-            type(exc).__name__,
-            str(exc)[:500],
-        )
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erreur checkout preview : {type(exc).__name__} — {str(exc)[:300]}",
-        ) from exc
         raise _handle_checkout_exception(exc, "preview") from exc
 
 

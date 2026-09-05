@@ -14,6 +14,7 @@ from app.api.routes import (
     notifications,
     orders,
 )
+from app.clients.bridge import PrestaShopBridgeClient
 from app.clients.prestashop import PrestaShopClient
 from app.core.config import get_settings
 
@@ -27,8 +28,17 @@ async def lifespan(app: FastAPI):
         "CHECKOUT_WRITE_ENABLED loaded = %s",
         settings.checkout_write_enabled,
     )
+    try:
+        PrestaShopClient(settings)._shared_client()
+    except Exception:
+        pass
+    try:
+        PrestaShopBridgeClient(settings)._shared_client()
+    except Exception:
+        pass
     yield
     await PrestaShopClient.close_shared_client()
+    await PrestaShopBridgeClient.close_shared_client()
 
 
 app = FastAPI(
@@ -45,8 +55,18 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-Idempotency-Key",
+        "X-Webhook-Secret",
+        "If-None-Match",
+    ],
+    expose_headers=["ETag", "Cache-Control", "Content-Length"],
 )
 
 app.include_router(health.router)

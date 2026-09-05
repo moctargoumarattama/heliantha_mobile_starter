@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import logging
 from typing import Any
 
@@ -16,7 +15,6 @@ class BridgeUnavailable(RuntimeError):
 
 
 class BridgeHTTPError(RuntimeError):
-    def __init__(self, status_code: int, detail: str, body: str | None = None):
     def __init__(
         self,
         status_code: int,
@@ -32,12 +30,15 @@ class BridgeHTTPError(RuntimeError):
 
 
 class PrestaShopBridgeClient:
-    '''
+    """
     Pont privé optionnel entre FastAPI et PrestaShop.
 
     Sert pour les opérations que le Webservice historique ne fournit pas
     proprement comme un login client ou un checkout dépendant de modules.
-    '''
+    """
+
+    _client: httpx.AsyncClient | None = None
+    _client_loop: asyncio.AbstractEventLoop | None = None
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -52,6 +53,43 @@ class PrestaShopBridgeClient:
                 "MOBILE_BRIDGE_SECRET n'est pas configuré."
             )
 
+    def _shared_client(self) -> httpx.AsyncClient:
+        self._check()
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if (
+            self.__class__._client is None
+            or self.__class__._client.is_closed
+            or (current_loop is not None and self.__class__._client_loop != current_loop)
+        ):
+            self.__class__._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    self.settings.prestashop_timeout_seconds,
+                    connect=5.0,
+                    read=self.settings.prestashop_timeout_seconds,
+                    write=10.0,
+                    pool=5.0,
+                ),
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30.0,
+                ),
+            )
+            self.__class__._client_loop = current_loop
+        return self.__class__._client
+
+    @classmethod
+    async def close_shared_client(cls) -> None:
+        if cls._client is not None and not cls._client.is_closed:
+            await cls._client.aclose()
+        cls._client = None
+        cls._client_loop = None
+
     async def post(self, endpoint: str, payload: dict[str, Any]) -> Any:
         self._check()
         url = (
@@ -63,34 +101,31 @@ class PrestaShopBridgeClient:
             "X-Heliantha-Bridge-Secret": self.settings.mobile_bridge_secret,
             "Accept": "application/json",
         }
-        async with httpx.AsyncClient(
-            timeout=self.settings.prestashop_timeout_seconds,
-            follow_redirects=True,
-        ) as client:
-            try:
-                logger.info("Bridge request method=POST url=%s", url)
-                response = await client.post(url, json=payload, headers=headers)
-            except httpx.TimeoutException as exc:
-                logger.warning(
-                    "Bridge timeout method=POST url=%s type=%s",
-                    url,
-                    type(exc).__name__,
-                )
-                raise
-            except httpx.RequestError as exc:
-                logger.warning(
-                    "Bridge request error method=POST url=%s type=%s",
-                    url,
-                    type(exc).__name__,
-                )
-                raise
-            except Exception as exc:
-                logger.exception(
-                    "Bridge exception method=POST url=%s type=%s",
-                    url,
-                    type(exc).__name__,
-                )
-                raise
+        client = self._shared_client()
+        try:
+            logger.info("Bridge request method=POST url=%s", url)
+            response = await client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException as exc:
+            logger.warning(
+                "Bridge timeout method=POST url=%s type=%s",
+                url,
+                type(exc).__name__,
+            )
+            raise
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Bridge request error method=POST url=%s type=%s",
+                url,
+                type(exc).__name__,
+            )
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Bridge exception method=POST url=%s type=%s",
+                url,
+                type(exc).__name__,
+            )
+            raise
 
         logger.info(
             "Bridge response method=POST url=%s status=%s body=%s",
@@ -102,7 +137,6 @@ class PrestaShopBridgeClient:
             error_code = "BRIDGE_ERROR"
             clean_message = f"Erreur PrestaShop (HTTP {response.status_code})"
             try:
-                detail = response.json()
                 data = response.json()
                 if isinstance(data, dict) and "error" in data:
                     err = data["error"]
@@ -114,13 +148,9 @@ class PrestaShopBridgeClient:
                 elif isinstance(data, dict) and "message" in data:
                     clean_message = str(data["message"])
             except Exception:
-                detail = response.text[:500]
                 clean_message = "Erreur serveur PrestaShop temporaire."
 
             raise BridgeHTTPError(
-                response.status_code,
-                f"Pont PrestaShop: HTTP {response.status_code} - {detail}",
-                response.text[:2000],
                 status_code=response.status_code,
                 detail=clean_message,
                 body=response.text[:2000],
@@ -136,9 +166,6 @@ class PrestaShopBridgeClient:
                 response.text[:2000],
             )
             raise BridgeHTTPError(
-                response.status_code,
-                f"Pont PrestaShop: JSON invalide - {type(exc).__name__}",
-                response.text[:2000],
                 status_code=response.status_code,
                 detail="Réponse JSON invalide du serveur PrestaShop.",
                 body=response.text[:2000],

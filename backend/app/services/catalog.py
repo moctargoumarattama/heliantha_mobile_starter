@@ -5,11 +5,13 @@ from typing import Any
 
 from app.clients.prestashop import PrestaShopClient
 from app.core.config import Settings
+from app.core.single_flight import single_flight
 from app.schemas.product import (
     CategoryOut,
     ProductFeatureOut,
     ProductOut,
 )
+from app.schemas.store import CurrencyOut
 from app.services.store_context import StoreContextService
 from app.services.normalizers import (
     localized,
@@ -148,93 +150,97 @@ class CatalogService:
             currency_id=currency_id,
         )
         cached = self._read_products_cache(cache_key)
-
         if cached is not None:
             return cached
 
-        offset = max(
-            0,
-            (page - 1) * page_size,
-        )
+        async def _fetch():
+            cached_inner = self._read_products_cache(cache_key)
+            if cached_inner is not None:
+                return cached_inner
 
-        if query:
-            products, meta = await self._products_for_search(
-                query=query,
-                category_id=category_id,
-                page=page,
-                page_size=page_size,
-                language_id=effective_language_id,
-                currency_id=currency_id,
+            offset = max(
+                0,
+                (page - 1) * page_size,
             )
+
+            if query:
+                products, meta = await self._products_for_search(
+                    query=query,
+                    category_id=category_id,
+                    page=page,
+                    page_size=page_size,
+                    language_id=effective_language_id,
+                    currency_id=currency_id,
+                )
+                return self._write_products_cache(
+                    cache_key,
+                    products,
+                    meta,
+                    SEARCH_CACHE_TTL_SECONDS,
+                )
+
+            if category_id is not None:
+                products, meta = await self._products_for_category(
+                    category_id=category_id,
+                    page=page,
+                    page_size=page_size,
+                    language_id=effective_language_id,
+                    currency_id=currency_id,
+                )
+                return self._write_products_cache(
+                    cache_key,
+                    products,
+                    meta,
+                    PRODUCT_CACHE_TTL_SECONDS,
+                )
+
+            filters: dict[str, str] = {
+                "active": "[1]",
+            }
+
+            payload = await self.ps.list_resource(
+                "products",
+                display=PRODUCT_LIST_DISPLAY,
+                filters=filters,
+                limit=f"{offset},{page_size}",
+                sort="[id_DESC]",
+                params={"language": effective_language_id},
+            )
+
+            rows = unwrap_collection(
+                payload,
+                "products",
+            )
+
+            stock_by_product = await self._stock_for_products(
+                [to_int(row.get("id")) for row in rows],
+            )
+            currency = await self.store_context.currency_for(currency_id)
+            products: list[ProductOut] = []
+
+            for row in rows:
+                product = await self._product_from_row(
+                    row,
+                    stock=stock_by_product.get(to_int(row.get("id"))),
+                    language_id=effective_language_id,
+                    currency_id=currency_id,
+                    currency=currency,
+                )
+
+                products.append(product)
+
             return self._write_products_cache(
                 cache_key,
                 products,
-                meta,
-                SEARCH_CACHE_TTL_SECONDS,
-            )
-
-        if category_id is not None:
-            products, meta = await self._products_for_category(
-                category_id=category_id,
-                page=page,
-                page_size=page_size,
-                language_id=effective_language_id,
-                currency_id=currency_id,
-            )
-            return self._write_products_cache(
-                cache_key,
-                products,
-                meta,
+                {
+                    "page": page,
+                    "page_size": page_size,
+                    "returned": len(products),
+                },
                 PRODUCT_CACHE_TTL_SECONDS,
             )
 
-        filters: dict[str, str] = {
-            "active": "[1]",
-        }
-
-        # IMPORTANT :
-        # "associations" ne doit PAS être demandé
-        # dans display sur la version PrestaShop
-        # utilisée par Heliantha.
-        payload = await self.ps.list_resource(
-            "products",
-            display=PRODUCT_LIST_DISPLAY,
-            filters=filters,
-            limit=f"{offset},{page_size}",
-            sort="[id_DESC]",
-            params={"language": effective_language_id},
-        )
-
-        rows = unwrap_collection(
-            payload,
-            "products",
-        )
-
-        stock_by_product = await self._stock_for_products(
-            [to_int(row.get("id")) for row in rows],
-        )
-        products: list[ProductOut] = []
-
-        for row in rows:
-            product = await self._product_from_row(
-                row,
-                stock=stock_by_product.get(to_int(row.get("id"))),
-                language_id=effective_language_id,
-                currency_id=currency_id,
-            )
-
-            products.append(product)
-
-        return self._write_products_cache(
-            cache_key,
-            products,
-            {
-            "page": page,
-            "page_size": page_size,
-            "returned": len(products),
-            },
-            PRODUCT_CACHE_TTL_SECONDS,
-        )
+        return await single_flight.execute(f"products:{cache_key}", _fetch)
 
     async def products_by_ids(
         self,
@@ -266,6 +272,7 @@ class CatalogService:
         stock_by_product = await self._stock_for_products(
             [to_int(row.get("id")) for row in rows],
         )
+        currency = await self.store_context.currency_for(currency_id)
 
         products = [
             await self._product_from_row(
@@ -273,6 +280,7 @@ class CatalogService:
                 stock=stock_by_product.get(to_int(row.get("id"))),
                 language_id=effective_language_id,
                 currency_id=currency_id,
+                currency=currency,
             )
             for row in rows
         ]
@@ -362,12 +370,14 @@ class CatalogService:
         stock_by_product = await self._stock_for_products(
             [to_int(row.get("id")) for row in page_rows],
         )
+        currency = await self.store_context.currency_for(currency_id)
         products = [
             await self._product_from_row(
                 row,
                 stock=stock_by_product.get(to_int(row.get("id"))),
                 language_id=language_id,
                 currency_id=currency_id,
+                currency=currency,
             )
             for row in page_rows
         ]
@@ -449,12 +459,14 @@ class CatalogService:
         stock_by_product = await self._stock_for_products(
             [to_int(row.get("id")) for row in page_rows],
         )
+        currency = await self.store_context.currency_for(currency_id)
         products = [
             await self._product_from_row(
                 row,
                 stock=stock_by_product.get(to_int(row.get("id"))),
                 language_id=language_id,
                 currency_id=currency_id,
+                currency=currency,
             )
             for row in page_rows
         ]
@@ -548,24 +560,31 @@ class CatalogService:
         if cached and cached[0] > now:
             return list(cached[1])
 
-        payload = await self.ps.list_resource(
-            "categories",
-            display=CATEGORY_LIST_DISPLAY,
-            limit="0,1000",
-            params={"language": language_id},
-        )
+        async def _fetch() -> list[dict[str, Any]]:
+            now_inner = monotonic()
+            cached_inner = self.__class__._category_rows_cache.get(language_id)
+            if cached_inner and cached_inner[0] > now_inner:
+                return list(cached_inner[1])
 
-        rows = [
-            row for row in unwrap_collection(payload, "categories")
-            if to_bool(row.get("active"), True)
-        ]
+            payload = await self.ps.list_resource(
+                "categories",
+                display=CATEGORY_LIST_DISPLAY,
+                limit="0,1000",
+                params={"language": language_id},
+            )
 
-        self.__class__._category_rows_cache[language_id] = (
-            now + CATEGORY_CACHE_TTL_SECONDS,
-            rows,
-        )
+            rows = [
+                row for row in unwrap_collection(payload, "categories")
+                if to_bool(row.get("active"), True)
+            ]
 
-        return list(rows)
+            self.__class__._category_rows_cache[language_id] = (
+                now_inner + CATEGORY_CACHE_TTL_SECONDS,
+                rows,
+            )
+            return list(rows)
+
+        return await single_flight.execute(f"categories:{language_id}", _fetch)
 
     async def _category_with_descendants(
         self,
@@ -757,51 +776,47 @@ class CatalogService:
             f"currency={currency_id or ''}"
         )
         cached = self.__class__._product_detail_cache.get(cache_key)
-
         if cached and cached[0] > monotonic():
             return cached[1]
 
-        payload = await self.ps.get_resource(
-            "products",
-            product_id,
-            params={"language": effective_language_id},
-        )
+        async def _fetch() -> ProductOut:
+            cached_inner = self.__class__._product_detail_cache.get(cache_key)
+            if cached_inner and cached_inner[0] > monotonic():
+                return cached_inner[1]
 
-        row = unwrap_single(
-            payload,
-            "products",
-        )
-
-        # Une fiche individuelle PrestaShop est
-        # généralement sous la clé "product".
-        if not row:
-            if isinstance(payload, dict):
-                row = payload.get(
-                    "product",
-                    {},
-                )
-
-        if not row:
-            raise ValueError(
-                "Produit introuvable."
+            payload = await self.ps.get_resource(
+                "products",
+                product_id,
+                params={"language": effective_language_id},
             )
 
-        product = await self._product_from_row(
-            row,
-            detailed=True,
-            stock=(
-                await self._stock_for_products([product_id])
-            ).get(product_id),
-            language_id=effective_language_id,
-            currency_id=currency_id,
-        )
+            row = unwrap_single(
+                payload,
+                "products",
+            )
+            if not row and isinstance(payload, dict):
+                row = payload.get("product", {})
 
-        self.__class__._product_detail_cache[cache_key] = (
-            monotonic() + PRODUCT_DETAIL_CACHE_TTL_SECONDS,
-            product,
-        )
+            if not row:
+                raise ValueError("Produit introuvable.")
 
-        return product
+            product = await self._product_from_row(
+                row,
+                detailed=True,
+                stock=(
+                    await self._stock_for_products([product_id])
+                ).get(product_id),
+                language_id=effective_language_id,
+                currency_id=currency_id,
+            )
+
+            self.__class__._product_detail_cache[cache_key] = (
+                monotonic() + PRODUCT_DETAIL_CACHE_TTL_SECONDS,
+                product,
+            )
+            return product
+
+        return await single_flight.execute(f"product:{cache_key}", _fetch)
 
     # ---------------------------------------------------------
     # NORMALISATION PRODUIT
@@ -814,6 +829,7 @@ class CatalogService:
         stock: dict[str, Any] | None = None,
         language_id: int | None = None,
         currency_id: int | None = None,
+        currency: CurrencyOut | None = None,
     ) -> ProductOut:
 
         effective_language_id = self._language_id(language_id)
@@ -879,7 +895,8 @@ class CatalogService:
         price = to_float(
             row.get("price"),
         )
-        currency = await self.store_context.currency_for(currency_id)
+        if currency is None:
+            currency = await self.store_context.currency_for(currency_id)
 
         if currency is not None:
             price = price * currency.conversion_rate

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import asyncio
 import logging
 from time import monotonic
 from typing import Any
@@ -19,6 +18,7 @@ class PrestaShopError(RuntimeError):
 
 class PrestaShopClient:
     _client: httpx.AsyncClient | None = None
+    _client_loop: asyncio.AbstractEventLoop | None = None
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -126,20 +126,28 @@ class PrestaShopClient:
             },
         )
 
-    async def get_binary(self, path: str) -> tuple[bytes, str]:
+    async def get_binary(
+        self,
+        path: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[bytes, str, dict[str, str]]:
         self._check_config()
         url = urljoin(self.api_url, path.lstrip("/"))
         client = self._shared_client()
         start = monotonic()
-        response = await client.get(url)
+        response = await client.get(url, headers=headers)
         self.prestashop_calls += 1
         self.prestashop_time_ms += (monotonic() - start) * 1000
         if response.status_code >= 400:
             raise PrestaShopError(
                 f"Image PrestaShop introuvable ({response.status_code})."
             )
-        return response.content, response.headers.get(
-            "content-type", "image/jpeg"
+        resp_headers = {k.lower(): v for k, v in response.headers.items()}
+        return (
+            response.content,
+            resp_headers.get("content-type", "image/jpeg"),
+            resp_headers,
         )
 
     def reset_perf(self) -> None:
@@ -148,10 +156,25 @@ class PrestaShopClient:
 
     def _shared_client(self) -> httpx.AsyncClient:
         self._check_config()
-        if self.__class__._client is None:
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if (
+            self.__class__._client is None
+            or self.__class__._client.is_closed
+            or (current_loop is not None and self.__class__._client_loop != current_loop)
+        ):
             self.__class__._client = httpx.AsyncClient(
                 auth=self.auth,
-                timeout=httpx.Timeout(self.settings.prestashop_timeout_seconds),
+                timeout=httpx.Timeout(
+                    self.settings.prestashop_timeout_seconds,
+                    connect=5.0,
+                    read=self.settings.prestashop_timeout_seconds,
+                    write=10.0,
+                    pool=5.0,
+                ),
                 follow_redirects=True,
                 limits=httpx.Limits(
                     max_connections=20,
@@ -159,10 +182,12 @@ class PrestaShopClient:
                     keepalive_expiry=30.0,
                 ),
             )
+            self.__class__._client_loop = current_loop
         return self.__class__._client
 
     @classmethod
     async def close_shared_client(cls) -> None:
-        if cls._client is not None:
+        if cls._client is not None and not cls._client.is_closed:
             await cls._client.aclose()
-            cls._client = None
+        cls._client = None
+        cls._client_loop = None

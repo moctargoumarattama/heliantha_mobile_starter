@@ -1,7 +1,8 @@
+import hashlib
 import logging
 from time import monotonic
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.api.deps import (
     get_catalog_service,
@@ -10,6 +11,7 @@ from app.api.deps import (
     get_store_context_service,
 )
 from app.clients.prestashop import PrestaShopClient, PrestaShopError
+from app.core.single_flight import single_flight
 from app.services.catalog import CatalogService
 from app.services.home_slides import HomeSlidesService
 from app.services.store_context import StoreContextService
@@ -174,25 +176,101 @@ async def store_context(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+IMAGE_CACHE_TTL_SECONDS = 300
+IMAGE_CACHE_MAX_ENTRIES = 100
+_image_cache: dict[str, tuple[float, bytes, str, str]] = {}
+
+
 @router.get("/products/{product_id}/image")
 async def product_image(
+    request: Request,
     product_id: int,
     image_id: int | None = None,
     ps: PrestaShopClient = Depends(get_ps_client),
 ) -> Response:
     ps.reset_perf()
     start = monotonic()
-    try:
-        path = (
-            f"images/products/{product_id}/{image_id}"
-            if image_id
-            else f"images/products/{product_id}"
+    path = (
+        f"images/products/{product_id}/{image_id}"
+        if image_id
+        else f"images/products/{product_id}"
+    )
+
+    now = monotonic()
+    cached = _image_cache.get(path)
+
+    # 1. Vérification Cache Mémoire local
+    if cached and cached[0] > now:
+        _, content, content_type, etag = cached
+        if_none_match = request.headers.get("if-none-match")
+        if if_none_match and if_none_match.strip('"') == etag.strip('"'):
+            _log_perf("product_image", start, ps, cache="hit-304")
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=300",
+                },
+            )
+        _log_perf("product_image", start, ps, cache="hit-200")
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "ETag": etag,
+                "Cache-Control": "public, max-age=300",
+                "Content-Length": str(len(content)),
+            },
         )
-        content, content_type = await ps.get_binary(path)
-        _log_perf("product_image", start, ps, cache="")
-        return Response(content=content, media_type=content_type)
+
+    # 2. Coalescing anti-stampede lors d'un cache miss
+    async def _fetch() -> tuple[float, bytes, str, str]:
+        now_inner = monotonic()
+        cached_inner = _image_cache.get(path)
+        if cached_inner and cached_inner[0] > now_inner:
+            return cached_inner
+
+        content, content_type, headers = await ps.get_binary(path)
+        sha1 = headers.get("content-sha1")
+        if not sha1:
+            sha1 = hashlib.sha1(content).hexdigest()
+        etag = f'"{sha1}"'
+
+        # Éviction LRU si limite atteinte
+        if len(_image_cache) >= IMAGE_CACHE_MAX_ENTRIES:
+            oldest = min(_image_cache.keys(), key=lambda k: _image_cache[k][0])
+            _image_cache.pop(oldest, None)
+
+        entry = (now_inner + IMAGE_CACHE_TTL_SECONDS, content, content_type, etag)
+        _image_cache[path] = entry
+        return entry
+
+    try:
+        _, content, content_type, etag = await single_flight.execute(f"image:{path}", _fetch)
     except PrestaShopError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match and if_none_match.strip('"') == etag.strip('"'):
+        _log_perf("product_image", start, ps, cache="miss-304")
+        return Response(
+            status_code=304,
+            headers={
+                "ETag": etag,
+                "Cache-Control": "public, max-age=300",
+            },
+        )
+
+    _log_perf("product_image", start, ps, cache="miss-200")
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "public, max-age=300",
+            "Content-Length": str(len(content)),
+        },
+    )
 
 
 def _log_perf(

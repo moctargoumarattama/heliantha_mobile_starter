@@ -115,16 +115,15 @@ class OrdersService:
     async def _orders_payload(self, customer_id: int) -> dict[str, Any]:
         filters = {"id_customer": f"[{customer_id}]"}
         attempts: list[dict[str, Any]] = [
-            {"filters": filters},
-            {"filters": filters, "limit": "0,100"},
             {
                 "filters": filters,
                 "limit": "0,100",
                 "display": ORDER_LIST_DISPLAY,
             },
+            {"filters": filters, "limit": "0,100"},
+            {"filters": filters},
         ]
 
-        last_payload: dict[str, Any] | None = None
         for index, kwargs in enumerate(attempts, start=1):
             try:
                 payload = await self.ps.list_resource("orders", **kwargs)
@@ -133,7 +132,8 @@ class OrdersService:
                     index,
                     customer_id,
                 )
-                last_payload = payload if isinstance(payload, dict) else {}
+                if isinstance(payload, dict):
+                    return payload
             except PrestaShopError:
                 logger.warning(
                     "PrestaShop /orders tentative=%s refusée customer_id=%s kwargs=%s",
@@ -141,15 +141,14 @@ class OrdersService:
                     customer_id,
                     kwargs,
                 )
-                if last_payload is not None:
-                    return last_payload
-                logger.exception(
-                    "Erreur PrestaShop /orders avec filtre id_customer seul. "
-                    "Vérifier permission GET orders et champ filtrable id_customer."
-                )
-                raise
+                if index == len(attempts):
+                    logger.exception(
+                        "Erreur PrestaShop /orders avec filtre id_customer. "
+                        "Vérifier permission GET orders et champ filtrable id_customer."
+                    )
+                    raise
 
-        return last_payload or {}
+        return {}
 
     async def _state_names(self, state_ids: set[int]) -> dict[int, str]:
         clean_ids = {state_id for state_id in state_ids if state_id}

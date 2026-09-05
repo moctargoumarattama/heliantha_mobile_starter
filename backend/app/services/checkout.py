@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.clients.bridge import (
@@ -20,6 +21,7 @@ from app.schemas.checkout import (
     CheckoutTotalsOut,
 )
 from app.services.catalog import CatalogService
+from app.services.geo import get_morocco_country_id
 from app.services.normalizers import (
     localized,
     to_float,
@@ -50,10 +52,13 @@ class CheckoutService:
         *,
         customer_id: int | None = None,
     ) -> CheckoutPreviewOut:
-        products = await self.catalog.products_by_ids(
-            [line.product_id for line in payload.lines],
-            language_id=payload.language_id,
-            currency_id=payload.currency_id,
+        products, morocco_country_id = await asyncio.gather(
+            self.catalog.products_by_ids(
+                [line.product_id for line in payload.lines],
+                language_id=payload.language_id,
+                currency_id=payload.currency_id,
+            ),
+            self._morocco_country_id(),
         )
         products_by_id = {product.id: product for product in products}
         lines = [
@@ -91,7 +96,6 @@ class CheckoutService:
             raise BridgeUnavailable("Bridge PrestaShop requis pour le checkout.")
 
         try:
-            morocco_country_id = await self._morocco_country_id()
             result = await self.bridge.post(
                 "checkout?action=preview",
                 {
@@ -306,45 +310,10 @@ class CheckoutService:
         ]
 
     async def _morocco_country_id(self) -> int:
-        # Cache de classe pour éviter N appels PS par requête
-        cached = getattr(CheckoutService, "_morocco_id_cache", None)
-        if cached and cached[0] > 0:
-            from time import monotonic
-
-            if cached[0] > monotonic():
-                return cached[1]
-
-        from time import monotonic
-
-        now = monotonic()
-        # Pas de filter[active] ni filter[deleted] : ces filtres causent
-        # une erreur 500 "This filter does not exist" sur certaines configs PS.
-        # On récupère tous les pays sans filtre et on filtre iso_code == "MA" en Python.
         try:
-            payload = await self.ps.list_resource(
-                "countries",
-                display="[id,iso_code,active]",
-                limit="0,250",
-                params={"language": self.settings.prestashop_language_id},
-            )
-        except Exception:
-            import logging as _logging
-
-            _logging.getLogger(__name__).exception(
-                "checkout: erreur PrestaShop /countries lors de la recherche Maroc"
-            )
-            raise
-
-        for row in unwrap_collection(payload, "countries"):
-            country_id = to_int(row.get("id"))
-            iso_code = str(row.get("iso_code") or "").strip().upper()
-            if country_id and iso_code == "MA":
-                CheckoutService._morocco_id_cache = (
-                    now + 300,
-                    country_id,
-                )
-                return country_id
-        raise BridgeHTTPError(502, "Pays Maroc introuvable dans PrestaShop.")
+            return await get_morocco_country_id(self.ps, self.settings.prestashop_language_id)
+        except Exception as exc:
+            raise BridgeHTTPError(502, "Pays Maroc introuvable dans PrestaShop.") from exc
 
     def _required_consents(self) -> list[CheckoutFieldOut]:
         return [

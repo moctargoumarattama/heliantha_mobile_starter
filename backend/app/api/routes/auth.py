@@ -1,5 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import get_bridge_client
 from app.clients.bridge import (
@@ -15,34 +14,37 @@ from app.schemas.auth import CustomerOut, LoginIn, LoginOut
 router = APIRouter(tags=["authentification"])
 
 
-def _get_client_ip(request: Request) -> str:
-    """Extrait l'adresse IP du client en tenant compte d'un éventuel proxy."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "127.0.0.1"
-
-
 @router.post("/auth/login", response_model=dict)
 async def login(
-    payload: LoginIn,
     request: Request,
+    payload: LoginIn,
     bridge: PrestaShopBridgeClient = Depends(get_bridge_client),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    client_ip = _get_client_ip(request)
-    rate_key = f"ip:{client_ip}"
+    forwarded = request.headers.get("x-forwarded-for")
+    client_ip = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "unknown")
+    )
 
-    # Vérifier si l'IP est temporairement bloquée suite à trop d'échecs
-    blocked, retry_after = login_rate_limiter.is_blocked(rate_key)
-    if blocked:
+    is_blocked, retry_after = login_rate_limiter.is_blocked(client_ip)
+    if is_blocked:
         raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Trop de tentatives de connexion échouées. Veuillez réessayer plus tard.",
+            status_code=429,
+            detail=f"Trop de tentatives de connexion échouées. Réessayez dans {retry_after} secondes.",
             headers={"Retry-After": str(retry_after)},
         )
+
+    def _record_failure_and_raise(detail: str = "Email ou mot de passe incorrect.") -> None:
+        blocked, retry = login_rate_limiter.record_failure(client_ip)
+        if blocked:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Trop de tentatives de connexion échouées. Réessayez dans {retry} secondes.",
+                headers={"Retry-After": str(retry)},
+            )
+        raise HTTPException(status_code=401, detail=detail)
 
     try:
         result = await bridge.post(
@@ -62,35 +64,14 @@ async def login(
         ) from exc
     except BridgeHTTPError as exc:
         if exc.status_code in {400, 401, 422}:
-            is_now_blocked, wait_seconds = login_rate_limiter.record_failure(rate_key)
-            if is_now_blocked:
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail="Trop de tentatives de connexion échouées. Veuillez réessayer plus tard.",
-                    headers={"Retry-After": str(wait_seconds)},
-                ) from exc
-            raise HTTPException(
-                status_code=401,
-                detail="Email ou mot de passe incorrect.",
-            ) from exc
+            _record_failure_and_raise()
         raise HTTPException(status_code=502, detail=exc.detail) from exc
 
     data = result.get("data", result)
     if not data or not data.get("id"):
-        is_now_blocked, wait_seconds = login_rate_limiter.record_failure(rate_key)
-        if is_now_blocked:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Trop de tentatives de connexion échouées. Veuillez réessayer plus tard.",
-                headers={"Retry-After": str(wait_seconds)},
-            )
-        raise HTTPException(
-            status_code=401,
-            detail="Email ou mot de passe incorrect.",
-        )
+        _record_failure_and_raise()
 
-    # Réinitialisation du compteur pour cette IP en cas de succès
-    login_rate_limiter.record_success(rate_key)
+    login_rate_limiter.record_success(client_ip)
 
     customer = CustomerOut(
         id=int(data["id"]),

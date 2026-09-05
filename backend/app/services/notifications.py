@@ -1,12 +1,10 @@
-from __future__ import annotations
-
+import asyncio
 import json
 import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 from typing import Any, Generator
 
 from app.core.config import Settings
@@ -39,13 +37,10 @@ class NotificationService:
             self.db_path = p.resolve()
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
     @contextmanager
     def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(self.db_path, timeout=10.0)
         conn.row_factory = sqlite3.Row
-        return conn
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA busy_timeout = 5000;")
         try:
@@ -184,7 +179,14 @@ class NotificationService:
         if row is None:
             return None
         notification = self._notification_from_row(row)
-        await self._send_fcm(customer_id, notification)
+        try:
+            await self._send_fcm(customer_id, notification)
+        except Exception:
+            logger.warning(
+                "Échec non-bloquant de l'envoi FCM pour customer %s",
+                customer_id,
+                exc_info=True,
+            )
         return notification
 
     def watch_favorite(self, customer_id: int, product_id: int, in_stock: bool) -> None:
@@ -236,10 +238,17 @@ class NotificationService:
                 )
                 if row:
                     created += 1
-                    await self._send_fcm(
-                        int(watch["customer_id"]),
-                        self._notification_from_row(row),
-                    )
+                    try:
+                        await self._send_fcm(
+                            int(watch["customer_id"]),
+                            self._notification_from_row(row),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Échec non-bloquant de l'envoi FCM pour favori customer %s",
+                            watch["customer_id"],
+                            exc_info=True,
+                        )
             with self._connect() as conn:
                 conn.execute(
                     """
@@ -299,21 +308,21 @@ class NotificationService:
             ).fetchone()
 
     async def _send_fcm(self, customer_id: int, notification: NotificationOut) -> None:
-        if not self._firebase_ready():
-            logger.info("FCM désactivé: Firebase Admin SDK non configuré.")
-            return
-        with self._connect() as conn:
-            tokens = conn.execute(
-                "SELECT token FROM device_tokens WHERE customer_id=?",
-                (customer_id,),
-            ).fetchall()
-        if not tokens:
-            return
+        try:
+            if not self._firebase_ready():
+                logger.debug("FCM désactivé: Firebase Admin SDK non configuré.")
+                return
+            with self._connect() as conn:
+                tokens = conn.execute(
+                    "SELECT token FROM device_tokens WHERE customer_id=?",
+                    (customer_id,),
+                ).fetchall()
+            if not tokens:
+                return
 
-        for row in tokens:
-            try:
-                messaging.send(
-                    messaging.Message(
+            for row in tokens:
+                try:
+                    msg = messaging.Message(
                         token=row["token"],
                         notification=messaging.Notification(
                             title=notification.title,
@@ -325,9 +334,19 @@ class NotificationService:
                             if value is not None
                         },
                     )
-                )
-            except Exception:
-                logger.exception("Envoi FCM HTTP v1 impossible.")
+                    await asyncio.to_thread(messaging.send, msg)
+                except Exception:
+                    logger.warning(
+                        "Envoi FCM individuel échoué pour le token %s",
+                        row["token"][:10] + "...",
+                        exc_info=True,
+                    )
+        except Exception:
+            logger.warning(
+                "Erreur globale non-bloquante dans _send_fcm pour customer %s",
+                customer_id,
+                exc_info=True,
+            )
 
     def _firebase_ready(self) -> bool:
         if firebase_admin is None or credentials is None or messaging is None:
@@ -338,11 +357,18 @@ class NotificationService:
         project_id = self.settings.firebase_project_id
         if not credential_path or not project_id:
             return False
-        firebase_admin.initialize_app(
-            credentials.Certificate(credential_path),
-            {"projectId": project_id},
-        )
-        return True
+        try:
+            firebase_admin.initialize_app(
+                credentials.Certificate(credential_path),
+                {"projectId": project_id},
+            )
+            return True
+        except Exception:
+            logger.warning(
+                "Impossible d'initialiser Firebase Admin SDK. FCM reste désactivé.",
+                exc_info=True,
+            )
+            return False
 
     def _notification_from_row(self, row: sqlite3.Row) -> NotificationOut:
         metadata = json.loads(row["metadata"] or "{}")
