@@ -745,11 +745,11 @@ class _CatalogContent extends StatelessWidget {
         child: AppStatusPanel(
           icon: Icons.cloud_off_rounded,
           title: 'Catalogue indisponible',
-          message: 'Veuillez rÃ©essayer dans quelques instants.',
+          message: 'Veuillez réessayer dans quelques instants.',
           action: OutlinedButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('RÃ©essayer'),
+            label: const Text('Réessayer'),
           ),
         ),
       );
@@ -759,7 +759,7 @@ class _CatalogContent extends StatelessWidget {
       return SingleChildScrollView(
         child: AppStatusPanel(
           icon: Icons.manage_search_rounded,
-          title: 'Aucun rÃ©sultat',
+          title: 'Aucun résultat',
           message: 'Essayez une autre recherche ou revenez plus tard.',
           action: OutlinedButton.icon(
             onPressed: onRetry,

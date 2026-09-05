@@ -70,7 +70,7 @@ class AppTheme {
         ),
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.surface,
+        backgroundColor: AppColors.surfaceGlow,
         foregroundColor: AppColors.ink,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -79,9 +79,13 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         height: 64,
-        backgroundColor: AppColors.surface,
+        backgroundColor: AppColors.surfaceGlow,
         surfaceTintColor: Colors.transparent,
         indicatorColor: AppColors.softSun,
+        indicatorShape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          side: const BorderSide(color: AppColors.premiumLine),
+        ),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
             color: states.contains(WidgetState.selected)
@@ -106,20 +110,20 @@ class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.md),
-          side: const BorderSide(color: AppColors.border),
+          side: const BorderSide(color: AppColors.premiumLine),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surface,
+        fillColor: AppColors.surfaceGlow,
         prefixIconColor: AppColors.muted,
         suffixIconColor: AppColors.muted,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.lg,
           vertical: 14,
         ),
-        border: _inputBorder(AppColors.border),
-        enabledBorder: _inputBorder(AppColors.border),
+        border: _inputBorder(AppColors.premiumLine),
+        enabledBorder: _inputBorder(AppColors.premiumLine),
         focusedBorder: _inputBorder(AppColors.navy, width: 1.35),
         errorBorder: _inputBorder(AppColors.danger),
       ),
@@ -163,7 +167,7 @@ class AppTheme {
       ),
       searchBarTheme: SearchBarThemeData(
         elevation: WidgetStateProperty.all(0),
-        backgroundColor: WidgetStateProperty.all(AppColors.surface),
+        backgroundColor: WidgetStateProperty.all(AppColors.surfaceGlow),
         surfaceTintColor: WidgetStateProperty.all(Colors.transparent),
         shadowColor: WidgetStateProperty.all(Colors.transparent),
         padding: WidgetStateProperty.all(
@@ -172,7 +176,7 @@ class AppTheme {
         shape: WidgetStateProperty.all(
           RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.md),
-            side: const BorderSide(color: AppColors.border),
+            side: const BorderSide(color: AppColors.premiumLine),
           ),
         ),
         hintStyle: WidgetStateProperty.all(

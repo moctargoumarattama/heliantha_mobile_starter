@@ -28,6 +28,7 @@ class Product {
     this.quantity,
     this.descriptionShort,
     this.description,
+    this.technicalDetails,
     this.categoryId,
     this.imageUrl,
     this.features = const [],
@@ -44,6 +45,7 @@ class Product {
   final int? quantity;
   final String? descriptionShort;
   final String? description;
+  final String? technicalDetails;
   final int? categoryId;
   final String? imageUrl;
   final List<ProductFeature> features;
@@ -63,6 +65,7 @@ class Product {
       quantity: (json['quantity'] as num?)?.toInt(),
       descriptionShort: json['description_short']?.toString(),
       description: json['description']?.toString(),
+      technicalDetails: json['technical_details']?.toString(),
       categoryId: (json['category_id'] as num?)?.toInt(),
       imageUrl: json['image_url']?.toString(),
       features: rawFeatures

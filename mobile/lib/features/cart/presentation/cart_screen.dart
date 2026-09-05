@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/navigation_helpers.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
@@ -11,6 +12,7 @@ import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../domain/cart_item.dart';
 import '../providers/cart_provider.dart';
 
@@ -20,6 +22,7 @@ class CartScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final items = ref.watch(cartProvider);
+    final user = ref.watch(currentUserProvider).valueOrNull;
     final total = ref.watch(cartTotalProvider);
     final currency = items.isEmpty ? 'MAD' : items.first.product.currency;
 
@@ -61,6 +64,7 @@ class CartScreen extends ConsumerWidget {
                               itemCount: items.length,
                               total: total,
                               currency: currency,
+                              isAuthenticated: user != null,
                             ),
                           ),
                         ],
@@ -82,6 +86,7 @@ class CartScreen extends ConsumerWidget {
                               itemCount: items.length,
                               total: total,
                               currency: currency,
+                              isAuthenticated: user != null,
                             ),
                           ],
                         ),
@@ -397,11 +402,13 @@ class _OrderSummary extends StatelessWidget {
     required this.itemCount,
     required this.total,
     required this.currency,
+    required this.isAuthenticated,
   });
 
   final int itemCount;
   final double total;
   final String currency;
+  final bool isAuthenticated;
 
   @override
   Widget build(BuildContext context) {
@@ -428,7 +435,13 @@ class _OrderSummary extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () => context.push('/checkout'),
+              onPressed: () {
+                if (isAuthenticated) {
+                  context.push('/checkout');
+                } else {
+                  context.push(loginLocationFor('/checkout'));
+                }
+              },
               icon: const Icon(Icons.lock_open_rounded),
               label: const Text('Commander'),
             ),

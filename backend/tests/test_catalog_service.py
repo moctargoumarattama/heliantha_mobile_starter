@@ -280,3 +280,44 @@ async def test_search_filters_irrelevant_native_results():
 
     assert meta["returned"] == 0
     assert products == []
+
+
+async def test_product_content_uses_short_description_as_commercial_description():
+    clear_catalog_cache()
+    ps = FakePrestaShopClient()
+    service = CatalogService(ps, DummySettings())
+
+    content = service._split_product_content(
+        description_short="<h3>Description :</h3><p>Texte commercial.</p>",
+        description=(
+            "<h3>Fiche Technique - Trina Solar 400 W</h3>"
+            "<ul><li><strong>Pmax :</strong> 400 W</li></ul>"
+        ),
+    )
+
+    assert content["description"] == (
+        "<h3>Description :</h3><p>Texte commercial.</p>"
+    )
+    assert "Fiche Technique" in content["technical_details"]
+    assert "Pmax" in content["technical_details"]
+
+
+async def test_product_content_splits_long_description_at_technical_heading():
+    clear_catalog_cache()
+    ps = FakePrestaShopClient()
+    service = CatalogService(ps, DummySettings())
+
+    content = service._split_product_content(
+        description_short="",
+        description=(
+            "<h3>Description</h3><p>Texte commercial.</p>"
+            "<h3>Caractéristiques techniques</h3>"
+            "<p><strong>Vmp :</strong> 31.1 V</p>"
+        ),
+    )
+
+    assert content["description"] == "<h3>Description</h3><p>Texte commercial.</p>"
+    assert content["technical_details"].startswith(
+        "<h3>Caractéristiques techniques</h3>"
+    )
+    assert "Vmp" in content["technical_details"]

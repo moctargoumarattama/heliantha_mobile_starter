@@ -11,16 +11,22 @@ import '../../../shared/widgets/brand_widgets.dart';
 import '../providers/addresses_provider.dart';
 
 class AddressesScreen extends ConsumerWidget {
-  const AddressesScreen({super.key});
+  const AddressesScreen({
+    super.key,
+    this.from,
+  });
+
+  final String? from;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final addresses = ref.watch(addressesProvider);
 
     return Scaffold(
-      appBar: const AppTopBar(
+      appBar: AppTopBar(
         subtitle: 'Mes adresses',
         showBack: true,
+        backFallbackLocation: from == 'checkout' ? '/checkout' : '/account',
       ),
       body: SafeArea(
         child: addresses.when(

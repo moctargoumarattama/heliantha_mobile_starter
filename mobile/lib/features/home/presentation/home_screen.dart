@@ -1,64 +1,97 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../shared/models/category.dart';
 import '../../../shared/models/home_slide.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../../shared/widgets/product_grid.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../catalog/providers/catalog_providers.dart';
 import '../../notifications/presentation/notification_bell.dart';
 import '../providers/home_provider.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  static bool _welcomeShownThisSession = false;
+
+  bool _showWelcome = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_welcomeShownThisSession) {
+      _welcomeShownThisSession = true;
+      _showWelcome = true;
+    }
+  }
+
+  void _dismissWelcome() {
+    if (!_showWelcome || !mounted) {
+      return;
+    }
+    setState(() => _showWelcome = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final categories = ref.watch(categoriesProvider);
     final products = ref.watch(productsProvider);
     final slides = ref.watch(homeSlidesProvider);
+    final user = ref.watch(currentUserProvider).valueOrNull;
+    final firstname = user?['firstname']?.toString().trim();
 
     return Scaffold(
       appBar: const AppTopBar(
-        subtitle: 'Leader de lâ€™Ã©nergie solaire au Maroc',
+        subtitle: "Leader de l'énergie solaire au Maroc",
         actions: [NotificationBell()],
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(categoriesProvider);
-          ref.invalidate(productsProvider);
-          ref.invalidate(homeSlidesProvider);
-        },
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          children: [
-            ResponsivePagePadding(
-              bottom: 96,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+      body: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(categoriesProvider);
+              ref.invalidate(productsProvider);
+              ref.invalidate(homeSlidesProvider);
+            },
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              children: [
+                ResponsivePagePadding(
+                  bottom: 96,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                   _SearchSurface(
                     onSubmitted: (value) {
                       final query = value.trim();
                       if (query.isEmpty) {
-                        context.push('/catalog');
+                        context.go('/catalog');
                         return;
                       }
                       context.push(
                         '/catalog?q=${Uri.encodeQueryComponent(query)}',
                       );
                     },
-                    onFilter: () => context.push('/catalog'),
+                    onFilter: () => context.go('/catalog'),
                   ),
                   const SizedBox(height: 16),
                   slides.when(
@@ -73,7 +106,7 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 26),
                   AppSectionHeader(
-                    title: 'CatÃ©gories',
+                    title: 'Catégories',
                     subtitle: 'Retrouvez les familles produits du site.',
                     actionLabel: 'Voir tout',
                     onAction: () => context.push('/catalog?categories=1'),
@@ -86,12 +119,12 @@ class HomeScreen extends ConsumerWidget {
                     ),
                     error: (_, __) => AppStatusPanel(
                       icon: Icons.wifi_off_rounded,
-                      title: 'CatÃ©gories indisponibles',
-                      message: 'Veuillez rÃ©essayer dans quelques instants.',
+                      title: 'Catégories indisponibles',
+                      message: 'Veuillez réessayer dans quelques instants.',
                       action: OutlinedButton.icon(
                         onPressed: () => ref.invalidate(categoriesProvider),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('RÃ©essayer'),
+                        label: const Text('Réessayer'),
                       ),
                     ),
                     data: (items) => _CategoryRail(
@@ -105,9 +138,9 @@ class HomeScreen extends ConsumerWidget {
                   AppSectionHeader(
                     title: 'Nos solutions solaires',
                     subtitle:
-                        'Des Ã©quipements sÃ©lectionnÃ©s pour vos projets.',
+                        'Des équipements sélectionnés pour vos projets.',
                     actionLabel: 'Catalogue',
-                    onAction: () => context.push('/catalog'),
+                    onAction: () => context.go('/catalog'),
                   ),
                   const SizedBox(height: 12),
                   products.when(
@@ -118,11 +151,11 @@ class HomeScreen extends ConsumerWidget {
                     error: (_, __) => AppStatusPanel(
                       icon: Icons.cloud_off_rounded,
                       title: 'Produits indisponibles',
-                      message: 'Veuillez rÃ©essayer dans quelques instants.',
+                      message: 'Veuillez réessayer dans quelques instants.',
                       action: OutlinedButton.icon(
                         onPressed: () => ref.invalidate(productsProvider),
                         icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('RÃ©essayer'),
+                        label: const Text('Réessayer'),
                       ),
                     ),
                     data: (items) {
@@ -130,7 +163,7 @@ class HomeScreen extends ConsumerWidget {
                         return AppStatusPanel(
                           icon: Icons.inventory_2_outlined,
                           title: 'Aucun produit disponible',
-                          message: 'Notre catalogue sera bientÃ´t disponible.',
+                          message: 'Notre catalogue sera bientôt disponible.',
                           action: OutlinedButton.icon(
                             onPressed: () => ref.invalidate(productsProvider),
                             icon: const Icon(Icons.refresh_rounded),
@@ -157,11 +190,281 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 18),
                   const _SupportPanel(),
-                ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_showWelcome)
+            _WelcomeSplashOverlay(
+              firstname: firstname?.isNotEmpty == true ? firstname : null,
+              onDismissed: _dismissWelcome,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WelcomeSplashOverlay extends StatefulWidget {
+  const _WelcomeSplashOverlay({
+    required this.firstname,
+    required this.onDismissed,
+  });
+
+  final String? firstname;
+  final VoidCallback onDismissed;
+
+  @override
+  State<_WelcomeSplashOverlay> createState() => _WelcomeSplashOverlayState();
+}
+
+class _WelcomeSplashOverlayState extends State<_WelcomeSplashOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fade;
+  late final Animation<double> _scale;
+  late final Animation<double> _textFade;
+  late final Animation<double> _sheen;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2350),
+    );
+    _fade = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.0).chain(
+          CurveTween(curve: Curves.easeOutCubic),
+        ),
+        weight: 18,
+      ),
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 64),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.0).chain(
+          CurveTween(curve: Curves.easeInOutCubic),
+        ),
+        weight: 18,
+      ),
+    ]).animate(_controller);
+    _scale = Tween<double>(begin: 0.96, end: 1).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0, 0.32, curve: Curves.easeOutCubic),
+      ),
+    );
+    _textFade = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.18, 0.46, curve: Curves.easeOutCubic),
+    );
+    _sheen = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.12, 0.48, curve: Curves.easeInOutCubic),
+    );
+    _controller
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          widget.onDismissed();
+        }
+      })
+      ..forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _dismiss() {
+    _controller.animateTo(
+      1,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = widget.firstname == null
+        ? 'Marhaba 👋'
+        : 'Marhaba ${widget.firstname} 👋';
+
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _dismiss,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Opacity(
+              opacity: _fade.value,
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 2.2, sigmaY: 2.2),
+                child: ColoredBox(
+                  color: AppColors.ink.withValues(alpha: 0.08),
+                  child: Center(
+                    child: Transform.scale(
+                      scale: _scale.value,
+                      child: child,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+          child: GestureDetector(
+            onTap: () {},
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.surface.withValues(alpha: 0.96),
+                      AppColors.surfaceGlow.withValues(alpha: 0.94),
+                      const Color(0xFFF6FBFD).withValues(alpha: 0.94),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: AppColors.premiumLine.withValues(alpha: 0.8),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.navy.withValues(alpha: 0.12),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _WelcomeLogo(sheen: _sheen),
+                    const SizedBox(height: 16),
+                    FadeTransition(
+                      opacity: _textFade,
+                      child: Column(
+                        children: [
+                          Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  color: AppColors.ink,
+                                  fontWeight: FontWeight.w900,
+                                  height: 1.1,
+                                ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Bienvenue sur Heliantha',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: AppColors.navy,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Heureux de vous retrouver ✨',
+                            textAlign: TextAlign.center,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: AppColors.muted,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _WelcomeLogo extends StatelessWidget {
+  const _WelcomeLogo({required this.sheen});
+
+  final Animation<double> sheen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 86,
+      height: 86,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.sun.withValues(alpha: 0.18),
+            blurRadius: 34,
+            spreadRadius: 5,
+          ),
+          BoxShadow(
+            color: AppColors.sky.withValues(alpha: 0.10),
+            blurRadius: 26,
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const HelianthaLogo(size: 72, padding: 5, showShadow: true),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            child: SizedBox(
+              width: 72,
+              height: 72,
+              child: AnimatedBuilder(
+                animation: sheen,
+                builder: (context, _) {
+                  final x = -1.2 + sheen.value * 2.4;
+                  return IgnorePointer(
+                    child: Align(
+                      alignment: Alignment(x, 0),
+                      child: Transform.rotate(
+                        angle: -0.55,
+                        child: Container(
+                          width: 16,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.white.withValues(alpha: 0),
+                                Colors.white.withValues(alpha: 0.34),
+                                Colors.white.withValues(alpha: 0),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -318,19 +621,33 @@ class _HomeSlideCard extends StatelessWidget {
         onTap: onTap,
         child: Ink(
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.surface,
+                AppColors.surfaceGlow,
+                Color(0xFFF7FBFD),
+              ],
+            ),
             borderRadius: BorderRadius.circular(AppRadii.lg),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: AppColors.premiumLine),
             boxShadow: AppShadows.soft,
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppRadii.lg),
-            child: slide.type == 'banner'
-                ? _SlideImage(
-                    imageUrl: slide.imageUrl,
-                    fit: BoxFit.contain,
-                  )
-                : _ProductSlide(slide: slide),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                slide.type == 'banner'
+                    ? _SlideImage(
+                        imageUrl: slide.imageUrl,
+                        fit: BoxFit.contain,
+                      )
+                    : _ProductSlide(slide: slide),
+                const _StaticSheen(),
+              ],
+            ),
           ),
         ),
       ),
@@ -515,9 +832,17 @@ class _HomeSliderLoading extends StatelessWidget {
     return Container(
       height: 244,
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.surface,
+            AppColors.surfaceGlow,
+            Color(0xFFF7FBFD),
+          ],
+        ),
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.premiumLine),
       ),
       child: const Center(child: CircularProgressIndicator()),
     );
@@ -567,8 +892,8 @@ class _CategoryRail extends StatelessWidget {
     if (items.isEmpty) {
       return const AppStatusPanel(
         icon: Icons.category_outlined,
-        title: 'Aucune catÃ©gorie',
-        message: 'Nos familles de produits seront bientÃ´t disponibles.',
+        title: 'Aucune catégorie',
+        message: 'Nos familles de produits seront bientôt disponibles.',
       );
     }
 
@@ -593,9 +918,17 @@ class _CategoryRail extends StatelessWidget {
                 width: 122,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.surface,
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.surface,
+                      AppColors.surfaceGlow,
+                      Color(0xFFF7FBFD),
+                    ],
+                  ),
                   borderRadius: BorderRadius.circular(AppRadii.lg),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: AppColors.premiumLine),
                   boxShadow: AppShadows.soft,
                 ),
                 child: Column(
@@ -660,7 +993,7 @@ class _CategoryRail extends StatelessWidget {
     if (value.contains('monitor')) {
       return Icons.monitor_heart_outlined;
     }
-    if (value.contains('Ã©clairage') || value.contains('eclairage')) {
+    if (value.contains('éclairage') || value.contains('eclairage')) {
       return Icons.lightbulb_outline_rounded;
     }
 
@@ -688,56 +1021,251 @@ class _CategoryRail extends StatelessWidget {
   }
 }
 
-class _SupportPanel extends StatelessWidget {
+class _SupportPanel extends StatefulWidget {
   const _SupportPanel();
+
+  @override
+  State<_SupportPanel> createState() => _SupportPanelState();
+}
+
+class _SupportPanelState extends State<_SupportPanel> {
+  static final Uri _whatsappUrl = Uri.https(
+    'wa.me',
+    '/212661575128',
+    {
+      'text':
+          'Bonjour Heliantha, je souhaite avoir des informations sur vos solutions énergétiques.',
+    },
+  );
+
+  bool _hovered = false;
+
+  Future<void> _openWhatsApp() async {
+    final opened = await launchUrl(
+      _whatsappUrl,
+      mode: LaunchMode.externalApplication,
+      webOnlyWindowName: '_blank',
+    );
+    if (!opened && mounted) {
+      AppFeedback.error(context, 'Impossible d’ouvrir WhatsApp.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        scale: _hovered ? 1.005 : 1,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            onTap: _openWhatsApp,
+            splashColor: Colors.white.withValues(alpha: 0.08),
+            highlightColor: Colors.white.withValues(alpha: 0.05),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.navy, AppColors.slate],
+                ),
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: Border.all(
+                  color: _hovered ? AppColors.sun : AppColors.premiumLine,
+                  width: _hovered ? 1.25 : 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.navy.withValues(
+                      alpha: _hovered ? 0.18 : 0.12,
+                    ),
+                    blurRadius: _hovered ? 20 : 14,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 520;
+                  final button = _WhatsAppCtaButton(
+                    hovered: _hovered,
+                    expand: compact,
+                  );
+
+                  if (compact) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _SupportIcon(),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _SupportPanelText(),
+                              const SizedBox(height: 12),
+                              button,
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      const _SupportIcon(),
+                      const SizedBox(width: 14),
+                      const Expanded(child: _SupportPanelText()),
+                      const SizedBox(width: 16),
+                      button,
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportIcon extends StatelessWidget {
+  const _SupportIcon();
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      width: 46,
+      height: 46,
       decoration: BoxDecoration(
-        color: AppColors.navy,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
+        color: Colors.white.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      child: const Icon(
+        Icons.support_agent_rounded,
+        color: Colors.white,
+        size: 24,
+      ),
+    );
+  }
+}
+
+class _SupportPanelText extends StatelessWidget {
+  const _SupportPanelText();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Besoin de conseils ?',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Nos équipes vous accompagnent dans votre projet énergétique.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFFC9D7E2),
+                height: 1.35,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WhatsAppCtaButton extends StatelessWidget {
+  const _WhatsAppCtaButton({
+    required this.hovered,
+    required this.expand,
+  });
+
+  final bool hovered;
+  final bool expand;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: expand ? double.infinity : null,
+      constraints: const BoxConstraints(minHeight: 44),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+      decoration: BoxDecoration(
+        color: hovered ? AppColors.sun : Colors.white,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(
+          color: hovered ? AppColors.sun : Colors.white.withValues(alpha: 0.78),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: hovered ? 0.18 : 0.10),
+            blurRadius: hovered ? 16 : 10,
+            offset: const Offset(0, 7),
+          ),
+        ],
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(AppRadii.md),
-            ),
-            child: const Icon(
-              Icons.support_agent_rounded,
-              color: Colors.white,
-              size: 24,
-            ),
+          Icon(
+            Icons.chat_bubble_rounded,
+            size: 18,
+            color: hovered ? AppColors.navy : AppColors.leaf,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Besoin de conseils ?',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Nos Ã©quipes vous accompagnent dans votre projet Ã©nergÃ©tique.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFFC9D7E2),
-                        height: 1.35,
-                      ),
-                ),
-              ],
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Nous contacter sur WhatsApp',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: AppColors.navy,
+                    fontWeight: FontWeight.w800,
+                  ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StaticSheen extends StatelessWidget {
+  const _StaticSheen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0x55FFFFFF),
+              Color(0x0FFFFFFF),
+              Color(0x00FFFFFF),
+            ],
+            stops: [0, 0.3, 0.62],
+          ),
+        ),
       ),
     );
   }

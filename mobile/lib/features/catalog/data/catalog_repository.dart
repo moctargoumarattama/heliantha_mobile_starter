@@ -7,6 +7,7 @@ class CatalogRepository {
   final ApiClient _api;
   final Map<String, _CacheEntry<List<Product>>> _productsCache = {};
   final Map<int, _CacheEntry<Product>> _productCache = {};
+  final Set<int> _loadedProductDetails = {};
   _CacheEntry<List<Category>>? _categoriesCache;
 
   static const _cacheTtl = Duration(seconds: 45);
@@ -121,7 +122,7 @@ class CatalogRepository {
     int? currencyId,
   }) async {
     final cached = _productCache[id];
-    if (cached != null && cached.isFresh) {
+    if (cached != null && cached.isFresh && _loadedProductDetails.contains(id)) {
       return cached.value;
     }
 
@@ -139,6 +140,7 @@ class CatalogRepository {
       product,
       DateTime.now().add(_detailCacheTtl),
     );
+    _loadedProductDetails.add(id);
     return product;
   }
 

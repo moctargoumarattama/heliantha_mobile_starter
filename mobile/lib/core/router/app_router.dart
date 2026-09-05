@@ -73,6 +73,10 @@ final appRouter = GoRouter(
       ],
     ),
     GoRoute(
+      path: '/products/:id',
+      redirect: (_, state) => '/product/${state.pathParameters['id']}',
+    ),
+    GoRoute(
       path: '/product/:id',
       builder: (_, state) => ProductScreen(
         productId: int.parse(state.pathParameters['id']!),
@@ -81,7 +85,9 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/login',
-      builder: (_, __) => const LoginScreen(),
+      builder: (_, state) => LoginScreen(
+        redirectLocation: state.uri.queryParameters['redirect'],
+      ),
     ),
     GoRoute(
       path: '/orders',
@@ -101,7 +107,9 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/addresses',
-      builder: (_, __) => const AddressesScreen(),
+      builder: (_, state) => AddressesScreen(
+        from: state.uri.queryParameters['from'],
+      ),
     ),
     GoRoute(
       path: '/checkout',

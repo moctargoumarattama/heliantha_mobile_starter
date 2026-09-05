@@ -13,10 +13,12 @@ class AppColors {
   static const leaf = Color(0xFF1E9362);
   static const background = Color(0xFFF7F9FC);
   static const surface = Color(0xFFFFFFFF);
+  static const surfaceGlow = Color(0xFFFFFDF6);
   static const surfaceMuted = Color(0xFFF1F5F9);
   static const softBlue = Color(0xFFEAF3FA);
   static const softSun = Color(0xFFFFF5D6);
   static const softLeaf = Color(0xFFE7F6EF);
   static const border = Color(0xFFDDE6EF);
+  static const premiumLine = Color(0xFFE8D99A);
   static const danger = Color(0xFFD84A4A);
 }

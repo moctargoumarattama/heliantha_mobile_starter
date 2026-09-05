@@ -126,9 +126,10 @@ class AppStatusPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        gradient: _surfaceGradient(AppColors.surface),
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.premiumLine),
+        boxShadow: AppShadows.soft,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -211,7 +212,7 @@ class AppSurface extends StatelessWidget {
     required this.child,
     this.padding = const EdgeInsets.all(AppSpacing.lg),
     this.backgroundColor = AppColors.surface,
-    this.borderColor = AppColors.border,
+    this.borderColor = AppColors.premiumLine,
     this.radius = AppRadii.lg,
     this.onTap,
     this.shadow = false,
@@ -230,6 +231,7 @@ class AppSurface extends StatelessWidget {
     final borderRadius = BorderRadius.circular(radius);
     final decoration = BoxDecoration(
       color: backgroundColor,
+      gradient: _surfaceGradient(backgroundColor),
       borderRadius: borderRadius,
       border: Border.all(color: borderColor),
       boxShadow: shadow ? AppShadows.soft : null,
@@ -288,6 +290,7 @@ class AppIconBadge extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         color: backgroundColor,
+        gradient: _surfaceGradient(backgroundColor),
         borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: Icon(icon, color: iconColor, size: iconSize),
@@ -343,4 +346,20 @@ class AppActionTile extends StatelessWidget {
       ),
     );
   }
+}
+
+LinearGradient? _surfaceGradient(Color color) {
+  if (color != AppColors.surface) {
+    return null;
+  }
+
+  return const LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      AppColors.surface,
+      AppColors.surfaceGlow,
+      Color(0xFFF8FBFD),
+    ],
+  );
 }

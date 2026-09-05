@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/navigation_helpers.dart';
 import '../../../shared/models/product.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
@@ -11,6 +12,7 @@ import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../cart/providers/cart_provider.dart';
 import '../../catalog/providers/catalog_providers.dart';
 import '../../favorites/providers/favorites_provider.dart';
@@ -33,11 +35,15 @@ class ProductScreen extends ConsumerWidget {
       appBar: const AppTopBar(
         subtitle: 'Détail produit',
         showBack: true,
+        backFallbackLocation: '/catalog',
       ),
       body: productAsync.when(
         loading: () => initialProduct == null
             ? const Center(child: CircularProgressIndicator())
-            : _ProductBody(product: initialProduct!),
+            : _ProductBody(
+                product: initialProduct!,
+                isLoadingDetails: true,
+              ),
         error: (_, __) => initialProduct == null
             ? ResponsivePagePadding(
                 child: AppStatusPanel(
@@ -59,25 +65,24 @@ class ProductScreen extends ConsumerWidget {
 }
 
 class _ProductBody extends ConsumerWidget {
-  const _ProductBody({required this.product});
+  const _ProductBody({
+    required this.product,
+    this.isLoadingDetails = false,
+  });
 
   final Product product;
+  final bool isLoadingDetails;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final favorites = ref.watch(favoritesProvider);
+    final user = ref.watch(currentUserProvider).valueOrNull;
     final isFavorite = favorites.contains(product.id);
     final price = formatMoney(
       product.price,
       currency: product.currency,
       symbol: product.currencySymbol,
     );
-    final description = _cleanText(
-      product.descriptionShort?.isNotEmpty == true
-          ? product.descriptionShort
-          : product.description,
-    );
-
     return ListView(
       padding: EdgeInsets.zero,
       children: [
@@ -97,7 +102,19 @@ class _ProductBody extends ConsumerWidget {
                 available: product.available,
                 isFavorite: isFavorite,
                 onToggleFavorite: () {
+                  if (user == null) {
+                    openLoginForCurrentLocation(context);
+                    return;
+                  }
                   ref.read(favoritesProvider.notifier).toggle(product.id);
+                  AppFeedback.info(
+                    context,
+                    isFavorite ? 'Retiré des favoris' : 'Ajouté aux favoris',
+                    action: SnackBarAction(
+                      label: 'Voir',
+                      onPressed: () => context.go('/favorites'),
+                    ),
+                  );
                 },
                 onAddToCart: () {
                   ref.read(cartProvider.notifier).add(product);
@@ -106,7 +123,7 @@ class _ProductBody extends ConsumerWidget {
                     'Ajouté au panier',
                     action: SnackBarAction(
                       label: 'Voir',
-                      onPressed: () => context.go('/cart'),
+                      onPressed: () => context.push('/cart'),
                     ),
                   );
                 },
@@ -126,13 +143,6 @@ class _ProductBody extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               summary,
-                              if (description.isNotEmpty) ...[
-                                const SizedBox(height: 14),
-                                _TextPanel(
-                                  title: 'Description',
-                                  text: description,
-                                ),
-                              ],
                             ],
                           ),
                         ),
@@ -142,18 +152,12 @@ class _ProductBody extends ConsumerWidget {
                     image,
                     const SizedBox(height: 14),
                     summary,
-                    if (description.isNotEmpty) ...[
-                      const SizedBox(height: 14),
-                      _TextPanel(
-                        title: 'Description',
-                        text: description,
-                      ),
-                    ],
                   ],
-                  if (product.features.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _FeaturesPanel(features: product.features),
-                  ],
+                  const SizedBox(height: 16),
+                  _ProductInformationTabs(
+                    product: product,
+                    isLoadingDetails: isLoadingDetails,
+                  ),
                 ],
               );
             },
@@ -305,98 +309,516 @@ class _ProductSummary extends StatelessWidget {
   }
 }
 
-class _TextPanel extends StatelessWidget {
-  const _TextPanel({
-    required this.title,
-    required this.text,
+class _ProductInformationTabs extends StatefulWidget {
+  const _ProductInformationTabs({
+    required this.product,
+    required this.isLoadingDetails,
   });
 
-  final String title;
-  final String text;
+  final Product product;
+  final bool isLoadingDetails;
+
+  @override
+  State<_ProductInformationTabs> createState() =>
+      _ProductInformationTabsState();
+}
+
+class _ProductInformationTabsState extends State<_ProductInformationTabs> {
+  int _index = 0;
+
+  Product get product => widget.product;
 
   @override
   Widget build(BuildContext context) {
+    final description = product.description?.trim().isNotEmpty == true
+        ? product.description!.trim()
+        : product.descriptionShort?.trim();
+    final technicalDetails = product.technicalDetails?.trim();
+    const tabs = ['Description', 'Détails techniques'];
+    final effectiveIndex = _index.clamp(0, tabs.length - 1).toInt();
+    final content = effectiveIndex == 0
+        ? _tabContent(
+            html: description,
+            contentKey: 'description',
+            loadingKey: 'description-loading',
+            emptyKey: 'description-empty',
+            emptyMessage: 'La description n’est pas disponible pour ce produit.',
+          )
+        : _tabContent(
+            html: technicalDetails,
+            contentKey: 'technical-details',
+            loadingKey: 'technical-details-loading',
+            emptyKey: 'technical-details-empty',
+            emptyMessage:
+                'Les détails techniques ne sont pas disponibles pour ce produit.',
+          );
+
     return AppSurface(
       padding: const EdgeInsets.all(AppSpacing.xl),
       radius: AppRadii.lg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppColors.ink,
-                  fontWeight: FontWeight.w900,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < tabs.length; i++)
+                _ProductInfoTabButton(
+                  label: tabs[i],
+                  icon: i == 0
+                      ? Icons.article_outlined
+                      : Icons.tune_rounded,
+                  selected: effectiveIndex == i,
+                  onTap: () => setState(() => _index = i),
                 ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.muted,
-                  height: 1.5,
-                ),
+          const SizedBox(height: 16),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: content,
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _tabContent({
+    required String? html,
+    required String contentKey,
+    required String loadingKey,
+    required String emptyKey,
+    required String emptyMessage,
+  }) {
+    if (html?.isNotEmpty == true) {
+      return _HtmlDescription(
+        key: ValueKey(contentKey),
+        html: html!,
+      );
+    }
+    if (widget.isLoadingDetails) {
+      return _ProductInfoLoading(key: ValueKey(loadingKey));
+    }
+    return _EmptyProductInfoMessage(
+      key: ValueKey(emptyKey),
+      message: emptyMessage,
+    );
+  }
+}
+
+class _ProductInfoLoading extends StatelessWidget {
+  const _ProductInfoLoading({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: key,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox.square(
+          dimension: 18,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Chargement des informations produit...',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.muted,
+                height: 1.5,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProductInfoTabButton extends StatefulWidget {
+  const _ProductInfoTabButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_ProductInfoTabButton> createState() => _ProductInfoTabButtonState();
+}
+
+class _ProductInfoTabButtonState extends State<_ProductInfoTabButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.selected;
+    final foreground = selected ? Colors.white : AppColors.navy;
+    final background = selected
+        ? AppColors.blue
+        : _hovered
+            ? AppColors.softBlue
+            : AppColors.surface;
+    final borderColor = selected
+        ? AppColors.blue
+        : _hovered
+            ? AppColors.blue.withValues(alpha: 0.48)
+            : AppColors.premiumLine;
+    final shadowColor = selected
+        ? AppColors.blue.withValues(alpha: 0.22)
+        : AppColors.navy.withValues(alpha: _hovered ? 0.10 : 0.06);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 170),
+        curve: Curves.easeOutCubic,
+        scale: _hovered ? 1.01 : 1,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                onTap: widget.onTap,
+                splashColor: AppColors.blue.withValues(alpha: 0.10),
+                highlightColor: AppColors.blue.withValues(alpha: 0.06),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 190),
+                  curve: Curves.easeOutCubic,
+                  constraints: const BoxConstraints(minHeight: 44),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 11,
+                  ),
+                  decoration: BoxDecoration(
+                    color: background,
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                    border: Border.all(color: borderColor, width: 1.15),
+                    boxShadow: [
+                      BoxShadow(
+                        color: shadowColor,
+                        blurRadius: selected || _hovered ? 14 : 9,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        widget.icon,
+                        size: 17,
+                        color: foreground,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.label,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: foreground,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 190),
+              curve: Curves.easeOutCubic,
+              width: selected ? 22 : 0,
+              height: 3,
+              decoration: BoxDecoration(
+                color: AppColors.sun,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _FeaturesPanel extends StatelessWidget {
-  const _FeaturesPanel({required this.features});
+class _EmptyProductInfoMessage extends StatelessWidget {
+  const _EmptyProductInfoMessage({
+    super.key,
+    required this.message,
+  });
 
-  final List<ProductFeature> features;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    return AppSurface(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      radius: AppRadii.lg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Caractéristiques',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: AppColors.ink,
-                  fontWeight: FontWeight.w900,
-                ),
+    return Text(
+      message,
+      key: key,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.muted,
+            height: 1.5,
           ),
-          const SizedBox(height: 10),
-          ...features.map(
-            (feature) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 9),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      feature.name,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.muted,
-                          ),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      feature.value,
-                      textAlign: TextAlign.right,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.ink,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
+}
+
+class _HtmlDescription extends StatelessWidget {
+  const _HtmlDescription({
+    super.key,
+    required this.html,
+  });
+
+  final String html;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = _parseHtmlBlocks(html);
+    return Column(
+      key: key,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < blocks.length; i++) ...[
+          _HtmlBlockView(block: blocks[i]),
+          if (i != blocks.length - 1) SizedBox(height: blocks[i].spacingAfter),
+        ],
+      ],
+    );
+  }
+}
+
+class _HtmlBlockView extends StatelessWidget {
+  const _HtmlBlockView({required this.block});
+
+  final _HtmlBlock block;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = switch (block.type) {
+      _HtmlBlockType.heading => Theme.of(context).textTheme.titleMedium,
+      _ => Theme.of(context).textTheme.bodyMedium,
+    };
+    final textStyle = style?.copyWith(
+      color: block.type == _HtmlBlockType.heading
+          ? AppColors.ink
+          : AppColors.muted,
+      fontWeight:
+          block.type == _HtmlBlockType.heading ? FontWeight.w900 : null,
+      height: block.type == _HtmlBlockType.heading ? 1.25 : 1.5,
+    );
+    final richText = Text.rich(
+      TextSpan(
+        style: textStyle,
+        children: _parseInlineSpans(block.html, textStyle),
+      ),
+    );
+
+    if (block.type != _HtmlBlockType.listItem &&
+        block.type != _HtmlBlockType.orderedListItem) {
+      return richText;
+    }
+
+    final marker = block.type == _HtmlBlockType.orderedListItem
+        ? '${block.order ?? 1}.'
+        : null;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 16,
+          child: marker == null
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 9),
+                  child: Container(
+                    width: 5,
+                    height: 5,
+                    decoration: const BoxDecoration(
+                      color: AppColors.blue,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                )
+              : Text(
+                  marker,
+                  style: textStyle?.copyWith(
+                    color: AppColors.blue,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: richText),
+      ],
+    );
+  }
+}
+
+enum _HtmlBlockType { paragraph, heading, listItem, orderedListItem }
+
+class _HtmlBlock {
+  const _HtmlBlock({
+    required this.type,
+    required this.html,
+    this.order,
+  });
+
+  final _HtmlBlockType type;
+  final String html;
+  final int? order;
+
+  double get spacingAfter => type == _HtmlBlockType.heading ? 10 : 8;
+}
+
+List<_HtmlBlock> _parseHtmlBlocks(String html) {
+  final normalized = html.replaceAll(
+    RegExp(r'<br\s*/?>', caseSensitive: false),
+    '\n',
+  );
+  final blocks = <_HtmlBlock>[];
+  final pattern = RegExp(
+    r'<ul[^>]*>(.*?)</ul>|<ol[^>]*>(.*?)</ol>|<h[1-6][^>]*>(.*?)</h[1-6]>|<li[^>]*>(.*?)</li>|<p[^>]*>(.*?)</p>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  var lastEnd = 0;
+
+  for (final match in pattern.allMatches(normalized)) {
+    _addPlainTextBlocks(blocks, normalized.substring(lastEnd, match.start));
+    if (match.group(1) != null) {
+      _addListBlocks(blocks, match.group(1)!, ordered: false);
+    } else if (match.group(2) != null) {
+      _addListBlocks(blocks, match.group(2)!, ordered: true);
+    } else if (match.group(3) != null) {
+      blocks.add(
+        _HtmlBlock(type: _HtmlBlockType.heading, html: match.group(3)!),
+      );
+    } else if (match.group(4) != null) {
+      blocks.add(
+        _HtmlBlock(type: _HtmlBlockType.listItem, html: match.group(4)!),
+      );
+    } else if (match.group(5) != null) {
+      _addParagraphBlocks(blocks, match.group(5)!);
+    }
+    lastEnd = match.end;
+  }
+
+  _addPlainTextBlocks(blocks, normalized.substring(lastEnd));
+  return blocks
+      .where((block) => _cleanText(block.html).isNotEmpty)
+      .toList(growable: false);
+}
+
+void _addListBlocks(
+  List<_HtmlBlock> blocks,
+  String html, {
+  required bool ordered,
+}) {
+  final itemPattern = RegExp(
+    r'<li[^>]*>(.*?)</li>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  var index = 1;
+  for (final match in itemPattern.allMatches(html)) {
+    final item = match.group(1);
+    if (_cleanText(item).isEmpty) {
+      continue;
+    }
+    blocks.add(
+      _HtmlBlock(
+        type: ordered ? _HtmlBlockType.orderedListItem : _HtmlBlockType.listItem,
+        html: item!,
+        order: ordered ? index : null,
+      ),
+    );
+    index++;
+  }
+}
+
+void _addParagraphBlocks(List<_HtmlBlock> blocks, String html) {
+  for (final line in html.split('\n')) {
+    _addLineBlock(blocks, line);
+  }
+}
+
+void _addPlainTextBlocks(List<_HtmlBlock> blocks, String value) {
+  for (final line in value.split('\n')) {
+    _addLineBlock(blocks, line);
+  }
+}
+
+void _addLineBlock(List<_HtmlBlock> blocks, String line) {
+  if (_cleanText(line).isEmpty) {
+    return;
+  }
+
+  final trimmed = line.trimLeft();
+  final listMarker = RegExp(r'^(?:[-*]|\u2022|\u25E6|\u25AA|\u25AB)\s+');
+  if (listMarker.hasMatch(_cleanText(trimmed))) {
+    blocks.add(
+      _HtmlBlock(
+        type: _HtmlBlockType.listItem,
+        html: trimmed.replaceFirst(listMarker, ''),
+      ),
+    );
+    return;
+  }
+
+  blocks.add(_HtmlBlock(type: _HtmlBlockType.paragraph, html: line));
+}
+
+List<InlineSpan> _parseInlineSpans(String html, TextStyle? baseStyle) {
+  final spans = <InlineSpan>[];
+  final pattern = RegExp(
+    r'<(?:strong|b)[^>]*>(.*?)</(?:strong|b)>|<(?:em|i)[^>]*>(.*?)</(?:em|i)>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  var lastEnd = 0;
+
+  for (final match in pattern.allMatches(html)) {
+    final before = _cleanText(html.substring(lastEnd, match.start));
+    if (before.isNotEmpty) {
+      spans.add(TextSpan(text: before));
+    }
+    final strongText = _cleanText(match.group(1));
+    if (strongText.isNotEmpty) {
+      spans.add(
+        TextSpan(
+          text: strongText,
+          style: baseStyle?.copyWith(
+            color: AppColors.ink,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+    final emphasizedText = _cleanText(match.group(2));
+    if (emphasizedText.isNotEmpty) {
+      spans.add(
+        TextSpan(
+          text: emphasizedText,
+          style: baseStyle?.copyWith(fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+    lastEnd = match.end;
+  }
+
+  final tail = _cleanText(html.substring(lastEnd));
+  if (tail.isNotEmpty) {
+    spans.add(TextSpan(text: tail));
+  }
+  return spans;
 }
 
 String _cleanText(String? value) {
@@ -404,12 +826,53 @@ String _cleanText(String? value) {
     return '';
   }
 
-  return value
+  return _decodeHtmlEntities(value)
       .replaceAll(RegExp(r'<[^>]*>'), ' ')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll('&amp;', '&')
-      .replaceAll('&quot;', '"')
-      .replaceAll('&#039;', "'")
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+}
+
+String _decodeHtmlEntities(String value) {
+  final named = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&quot;': '"',
+    '&apos;': "'",
+    '&#039;': "'",
+    '&rsquo;': "'",
+    '&lsquo;': "'",
+    '&ldquo;': '"',
+    '&rdquo;': '"',
+    '&eacute;': 'é',
+    '&egrave;': 'è',
+    '&ecirc;': 'ê',
+    '&agrave;': 'à',
+    '&ccedil;': 'ç',
+    '&ocirc;': 'ô',
+    '&ugrave;': 'ù',
+    '&deg;': '°',
+    '&ndash;': '-',
+    '&mdash;': '-',
+    '&times;': '×',
+    '&le;': '≤',
+    '&ge;': '≥',
+  };
+  var output = value.replaceAllMapped(
+    RegExp(r'&#x([0-9a-fA-F]+);'),
+    (match) {
+      final codePoint = int.tryParse(match.group(1)!, radix: 16);
+      return codePoint == null ? match.group(0)! : String.fromCharCode(codePoint);
+    },
+  );
+  output = output.replaceAllMapped(
+    RegExp(r'&#([0-9]+);'),
+    (match) {
+      final codePoint = int.tryParse(match.group(1)!);
+      return codePoint == null ? match.group(0)! : String.fromCharCode(codePoint);
+    },
+  );
+  for (final entry in named.entries) {
+    output = output.replaceAll(entry.key, entry.value);
+  }
+  return output;
 }

@@ -9,7 +9,12 @@ import '../../../shared/widgets/brand_widgets.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({
+    super.key,
+    this.redirectLocation,
+  });
+
+  final String? redirectLocation;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -50,7 +55,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             password: password,
           );
       ref.invalidate(currentUserProvider);
-      if (mounted) context.go('/account');
+      if (mounted) {
+        context.replace(_safeRedirect(widget.redirectLocation));
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _error = 'Connexion impossible pour ce compte.');
@@ -62,12 +69,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  String _safeRedirect(String? value) {
+    if (value == null || value.isEmpty || !value.startsWith('/')) {
+      return '/account';
+    }
+    if (value.startsWith('//') || value.startsWith('/login')) {
+      return '/account';
+    }
+    return value;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const AppTopBar(
         subtitle: 'Connexion client',
         showBack: true,
+        backFallbackLocation: '/account',
       ),
       body: SafeArea(
         child: ListView(

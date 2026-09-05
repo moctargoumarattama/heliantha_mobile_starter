@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/router/navigation_helpers.dart';
 import '../../features/cart/providers/cart_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_tokens.dart';
@@ -27,9 +28,13 @@ class HelianthaLogo extends StatelessWidget {
       height: size,
       padding: EdgeInsets.all(padding),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.surface, AppColors.surfaceGlow],
+        ),
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.premiumLine),
         boxShadow: showShadow ? AppShadows.soft : null,
       ),
       child: ClipRRect(
@@ -54,12 +59,14 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
     this.showBack = false,
     this.showCart = true,
     this.actions = const [],
+    this.backFallbackLocation,
   });
 
   final String subtitle;
   final bool showBack;
   final bool showCart;
   final List<Widget> actions;
+  final String? backFallbackLocation;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -68,12 +75,21 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return AppBar(
       automaticallyImplyLeading: false,
+      flexibleSpace: const _TopBarFinish(),
+      shape: const Border(
+        bottom: BorderSide(color: AppColors.premiumLine),
+      ),
       leading: showBack
           ? IconButton(
               tooltip: 'Retour',
               onPressed: () {
                 if (context.canPop()) {
                   context.pop();
+                } else {
+                  final fallback = backFallbackLocation;
+                  if (fallback != null) {
+                    context.go(fallback);
+                  }
                 }
               },
               icon: const Icon(Icons.arrow_back_rounded),
@@ -85,6 +101,27 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
         if (showCart) const AppCartButton(),
         const SizedBox(width: 8),
       ],
+    );
+  }
+}
+
+class _TopBarFinish extends StatelessWidget {
+  const _TopBarFinish();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.surface,
+            AppColors.surfaceGlow,
+            Color(0xFFF5FBFD),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -102,7 +139,12 @@ class AppCartButton extends ConsumerWidget {
 
     return IconButton(
       tooltip: 'Panier',
-      onPressed: () => context.go('/cart'),
+      onPressed: () {
+        if (currentLocation(context) == '/cart') {
+          return;
+        }
+        context.push('/cart');
+      },
       icon: Badge(
         isLabelVisible: count > 0,
         backgroundColor: AppColors.danger,

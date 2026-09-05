@@ -24,6 +24,7 @@ class ProductOut(BaseModel):
     quantity: int | None = None
     description_short: str | None = None
     description: str | None = None
+    technical_details: str | None = None
     category_id: int | None = None
     image_url: str | None = None
     features: list[ProductFeatureOut] = Field(default_factory=list)

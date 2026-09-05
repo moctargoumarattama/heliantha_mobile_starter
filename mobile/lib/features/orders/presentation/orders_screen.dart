@@ -21,6 +21,7 @@ class OrdersScreen extends ConsumerWidget {
       appBar: const AppTopBar(
         subtitle: 'Commandes client',
         showBack: true,
+        backFallbackLocation: '/account',
       ),
       body: SafeArea(
         child: orders.when(
@@ -276,6 +277,7 @@ class OrderDetailScreen extends ConsumerWidget {
       appBar: const AppTopBar(
         subtitle: 'Détail commande',
         showBack: true,
+        backFallbackLocation: '/orders',
       ),
       body: SafeArea(
         child: orders.when(

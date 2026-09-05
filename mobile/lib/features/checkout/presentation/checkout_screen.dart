@@ -339,6 +339,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       appBar: const AppTopBar(
         subtitle: 'Checkout',
         showBack: true,
+        backFallbackLocation: '/cart',
       ),
       body: SafeArea(
         child: cartItems.isEmpty
@@ -431,7 +432,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                                   address: userAddress,
                                   isLoading: addressesAsync?.isLoading ?? false,
                                   onManageAddress: () async {
-                                    await context.push('/addresses');
+                                    await context.push(
+                                      '/addresses?from=checkout',
+                                    );
                                     if (mounted) {
                                       ref.invalidate(addressesProvider);
                                     }
@@ -1381,4 +1384,3 @@ class _UsedAddressPanel extends StatelessWidget {
     );
   }
 }
-

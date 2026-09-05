@@ -21,6 +21,7 @@ class NotificationsScreen extends ConsumerWidget {
       appBar: const AppTopBar(
         subtitle: 'Notifications',
         showBack: true,
+        backFallbackLocation: '/account',
       ),
       body: notifications.when(
         loading: () => const Center(child: CircularProgressIndicator()),

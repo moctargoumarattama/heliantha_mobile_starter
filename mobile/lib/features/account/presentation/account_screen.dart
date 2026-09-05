@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/router/navigation_helpers.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/widgets/app_feedback.dart';
@@ -219,7 +220,7 @@ class _GuestView extends StatelessWidget {
                 message:
                     'Connectez-vous avec votre compte client pour retrouver vos commandes.',
                 action: FilledButton.icon(
-                  onPressed: () => context.push('/login'),
+                  onPressed: () => context.push(loginLocationFor('/account')),
                   icon: const Icon(Icons.login_rounded),
                   label: const Text('Se connecter'),
                 ),

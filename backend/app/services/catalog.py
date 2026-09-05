@@ -882,6 +882,7 @@ class CatalogService:
         ).strip()
 
         description: str | None = None
+        technical_details: str | None = None
 
         if detailed:
             description_value = localized(
@@ -889,8 +890,12 @@ class CatalogService:
                 effective_language_id,
             ).strip()
 
-            if description_value:
-                description = description_value
+            split_content = self._split_product_content(
+                description_short=description_short,
+                description=description_value,
+            )
+            description = split_content["description"]
+            technical_details = split_content["technical_details"]
 
         price = to_float(
             row.get("price"),
@@ -940,6 +945,8 @@ class CatalogService:
 
             description=description,
 
+            technical_details=technical_details,
+
             category_id=(
                 to_int(
                     row.get(
@@ -953,6 +960,80 @@ class CatalogService:
 
             features=features,
         )
+
+    def _split_product_content(
+        self,
+        *,
+        description_short: str,
+        description: str,
+    ) -> dict[str, str | None]:
+        description_part = description_short or None
+        technical_part: str | None = None
+
+        if description:
+            split = self._split_html_at_technical_heading(description)
+            if split is not None:
+                before, technical = split
+                if not description_part and before.strip():
+                    description_part = before.strip()
+                technical_part = technical.strip() or None
+            elif self._html_starts_with_technical_heading(description):
+                technical_part = description
+            elif not description_part:
+                description_part = description
+
+        return {
+            "description": description_part,
+            "technical_details": technical_part,
+        }
+
+    def _split_html_at_technical_heading(
+        self,
+        html: str,
+    ) -> tuple[str, str] | None:
+        import re
+
+        heading_pattern = re.compile(
+            r"<h[1-4]\b[^>]*>.*?</h[1-4]>",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for match in heading_pattern.finditer(html):
+            if self._is_technical_heading(match.group(0)):
+                return html[: match.start()], html[match.start() :]
+        return None
+
+    def _html_starts_with_technical_heading(
+        self,
+        html: str,
+    ) -> bool:
+        import re
+
+        match = re.match(
+            r"\s*<h[1-4]\b[^>]*>.*?</h[1-4]>",
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        return bool(match and self._is_technical_heading(match.group(0)))
+
+    def _is_technical_heading(
+        self,
+        heading_html: str,
+    ) -> bool:
+        import re
+        from html import unescape
+
+        text = unescape(re.sub(r"<[^>]+>", " ", heading_html))
+        text = re.sub(r"\s+", " ", text).strip().lower()
+        technical_titles = (
+            "fiche technique",
+            "caractéristiques techniques",
+            "caracteristiques techniques",
+            "spécifications techniques",
+            "specifications techniques",
+            "spécifications",
+            "specifications",
+        )
+        return any(title in text for title in technical_titles)
 
     # ---------------------------------------------------------
     # STOCK

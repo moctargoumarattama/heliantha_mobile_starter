@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/router/navigation_helpers.dart';
+import '../../features/auth/providers/auth_provider.dart';
 import '../../features/cart/providers/cart_provider.dart';
 import '../../features/favorites/providers/favorites_provider.dart';
 import '../models/product.dart';
@@ -26,6 +28,7 @@ class ProductCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final favorites = ref.watch(favoritesProvider);
+    final user = ref.watch(currentUserProvider).valueOrNull;
     final isFavorite = favorites.contains(product.id);
     final price = formatMoney(
       product.price,
@@ -35,9 +38,17 @@ class ProductCard extends ConsumerWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.surface,
+            AppColors.surfaceGlow,
+            Color(0xFFF7FBFD),
+          ],
+        ),
         borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: AppColors.premiumLine),
         boxShadow: AppShadows.soft,
       ),
       child: Material(
@@ -58,10 +69,24 @@ class ProductCard extends ConsumerWidget {
                           clipBehavior: Clip.antiAlias,
                           padding: const EdgeInsets.all(4),
                           decoration: BoxDecoration(
-                            color: AppColors.surfaceMuted,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppColors.surface,
+                                AppColors.surfaceMuted,
+                                AppColors.softBlue,
+                              ],
+                            ),
                             borderRadius: BorderRadius.circular(AppRadii.md),
                           ),
-                          child: _ProductCardImage(imageUrl: product.imageUrl),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              _ProductCardImage(imageUrl: product.imageUrl),
+                              const _StaticSheen(),
+                            ],
+                          ),
                         ),
                       ),
                       Positioned(
@@ -76,9 +101,23 @@ class ProductCard extends ConsumerWidget {
                               : Icons.favorite_border_rounded,
                           color: isFavorite ? AppColors.danger : AppColors.navy,
                           onPressed: () {
+                            if (user == null) {
+                              openLoginForCurrentLocation(context);
+                              return;
+                            }
                             ref
                                 .read(favoritesProvider.notifier)
                                 .toggle(product.id);
+                            AppFeedback.info(
+                              context,
+                              isFavorite
+                                  ? 'Retiré des favoris'
+                                  : 'Ajouté aux favoris',
+                              action: SnackBarAction(
+                                label: 'Voir',
+                                onPressed: () => context.go('/favorites'),
+                              ),
+                            );
                           },
                         ),
                       ),
@@ -155,7 +194,31 @@ class ProductCard extends ConsumerWidget {
       'Ajouté au panier',
       action: SnackBarAction(
         label: 'Voir',
-        onPressed: () => context.go('/cart'),
+        onPressed: () => context.push('/cart'),
+      ),
+    );
+  }
+}
+
+class _StaticSheen extends StatelessWidget {
+  const _StaticSheen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0x66FFFFFF),
+              Color(0x11FFFFFF),
+              Color(0x00FFFFFF),
+            ],
+            stops: [0, 0.34, 0.68],
+          ),
+        ),
       ),
     );
   }

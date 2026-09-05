@@ -32,7 +32,15 @@ class HelianthaBackground extends StatelessWidget {
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: AppColors.background.withValues(alpha: 0.88),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.background.withValues(alpha: 0.92),
+                    AppColors.surfaceGlow.withValues(alpha: 0.88),
+                    AppColors.softBlue.withValues(alpha: 0.78),
+                  ],
+                ),
               ),
             ),
           ),
