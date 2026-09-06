@@ -9,7 +9,7 @@ from app.clients.bridge import (
 from app.core.config import Settings, get_settings
 from app.core.rate_limit import login_rate_limiter
 from app.core.security import create_access_token, get_current_identity
-from app.schemas.auth import CustomerOut, LoginIn, LoginOut
+from app.schemas.auth import CustomerOut, LoginIn, LoginOut, RegisterIn
 
 router = APIRouter(tags=["authentification"])
 
@@ -72,6 +72,62 @@ async def login(
         _record_failure_and_raise()
 
     login_rate_limiter.record_success(client_ip)
+
+    customer = CustomerOut(
+        id=int(data["id"]),
+        email=data["email"],
+        firstname=data.get("firstname", ""),
+        lastname=data.get("lastname", ""),
+    )
+    token = create_access_token(
+        customer_id=customer.id,
+        email=str(customer.email),
+        settings=settings,
+    )
+    out = LoginOut(
+        access_token=token,
+        customer=customer,
+    )
+    return {
+        "success": True,
+        "data": out.model_dump(),
+        "meta": None,
+        "error": None,
+    }
+
+
+@router.post("/auth/register", response_model=dict)
+async def register(
+    payload: RegisterIn,
+    bridge: PrestaShopBridgeClient = Depends(get_bridge_client),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    try:
+        result = await bridge.post(
+            "auth?action=register",
+            {
+                "firstname": payload.firstname.strip(),
+                "lastname": payload.lastname.strip(),
+                "email": str(payload.email),
+                "password": payload.password,
+            },
+        )
+    except BridgeUnavailable as exc:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "La création de compte PrestaShop nécessite le pont serveur. "
+                f"{exc}"
+            ),
+        ) from exc
+    except BridgeHTTPError as exc:
+        if exc.status_code in {400, 401, 409, 422}:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        raise HTTPException(status_code=502, detail=exc.detail) from exc
+
+    data = result.get("data", result)
+    if not data or not data.get("id"):
+        raise HTTPException(status_code=502, detail="Compte PrestaShop non créé.")
 
     customer = CustomerOut(
         id=int(data["id"]),

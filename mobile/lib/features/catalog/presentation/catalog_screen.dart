@@ -737,7 +737,10 @@ class _CatalogContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const ProductGridSkeleton(
+        itemCount: 6,
+        padding: EdgeInsets.only(bottom: 12),
+      );
     }
 
     if (error != null) {

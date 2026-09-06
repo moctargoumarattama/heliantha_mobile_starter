@@ -80,116 +80,118 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  _SearchSurface(
-                    onSubmitted: (value) {
-                      final query = value.trim();
-                      if (query.isEmpty) {
-                        context.go('/catalog');
-                        return;
-                      }
-                      context.push(
-                        '/catalog?q=${Uri.encodeQueryComponent(query)}',
-                      );
-                    },
-                    onFilter: () => context.go('/catalog'),
-                  ),
-                  const SizedBox(height: 16),
-                  slides.when(
-                    loading: () => const _HomeSliderLoading(),
-                    error: (_, __) => const _HomeSliderLoading(),
-                    data: (items) => HomeSlider(
-                      slides: items,
-                      onOpenProduct: (productId) {
-                        context.push('/product/$productId');
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 26),
-                  AppSectionHeader(
-                    title: 'Catégories',
-                    subtitle: 'Retrouvez les familles produits du site.',
-                    actionLabel: 'Voir tout',
-                    onAction: () => context.push('/catalog?categories=1'),
-                  ),
-                  const SizedBox(height: 12),
-                  categories.when(
-                    loading: () => const SizedBox(
-                      height: 106,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (_, __) => AppStatusPanel(
-                      icon: Icons.wifi_off_rounded,
-                      title: 'Catégories indisponibles',
-                      message: 'Veuillez réessayer dans quelques instants.',
-                      action: OutlinedButton.icon(
-                        onPressed: () => ref.invalidate(categoriesProvider),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Réessayer'),
+                      _SearchSurface(
+                        onSubmitted: (value) {
+                          final query = value.trim();
+                          if (query.isEmpty) {
+                            context.go('/catalog');
+                            return;
+                          }
+                          context.push(
+                            '/catalog?q=${Uri.encodeQueryComponent(query)}',
+                          );
+                        },
+                        onFilter: () => context.go('/catalog'),
                       ),
-                    ),
-                    data: (items) => _CategoryRail(
-                      items: items,
-                      onTap: (categoryId) {
-                        context.push('/catalog?category=$categoryId');
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  AppSectionHeader(
-                    title: 'Nos solutions solaires',
-                    subtitle:
-                        'Des équipements sélectionnés pour vos projets.',
-                    actionLabel: 'Catalogue',
-                    onAction: () => context.go('/catalog'),
-                  ),
-                  const SizedBox(height: 12),
-                  products.when(
-                    loading: () => const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 56),
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (_, __) => AppStatusPanel(
-                      icon: Icons.cloud_off_rounded,
-                      title: 'Produits indisponibles',
-                      message: 'Veuillez réessayer dans quelques instants.',
-                      action: OutlinedButton.icon(
-                        onPressed: () => ref.invalidate(productsProvider),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Réessayer'),
+                      const SizedBox(height: 16),
+                      slides.when(
+                        loading: () => const _HomeSliderLoading(),
+                        error: (_, __) => const _HomeSliderLoading(),
+                        data: (items) => HomeSlider(
+                          slides: items,
+                          onOpenProduct: (productId) {
+                            context.push('/product/$productId');
+                          },
+                        ),
                       ),
-                    ),
-                    data: (items) {
-                      if (items.isEmpty) {
-                        return AppStatusPanel(
-                          icon: Icons.inventory_2_outlined,
-                          title: 'Aucun produit disponible',
-                          message: 'Notre catalogue sera bientôt disponible.',
+                      const SizedBox(height: 26),
+                      AppSectionHeader(
+                        title: 'Catégories',
+                        subtitle: 'Retrouvez les familles produits du site.',
+                        actionLabel: 'Voir tout',
+                        onAction: () => context.push('/catalog?categories=1'),
+                      ),
+                      const SizedBox(height: 12),
+                      categories.when(
+                        loading: () => const _CategoryRailSkeleton(),
+                        error: (_, __) => AppStatusPanel(
+                          icon: Icons.wifi_off_rounded,
+                          title: 'Catégories indisponibles',
+                          message: 'Veuillez réessayer dans quelques instants.',
+                          action: OutlinedButton.icon(
+                            onPressed: () => ref.invalidate(categoriesProvider),
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Réessayer'),
+                          ),
+                        ),
+                        data: (items) => _CategoryRail(
+                          items: items,
+                          onTap: (categoryId) {
+                            context.push('/catalog?category=$categoryId');
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      AppSectionHeader(
+                        title: 'Nos solutions solaires',
+                        subtitle:
+                            'Des équipements sélectionnés pour vos projets.',
+                        actionLabel: 'Catalogue',
+                        onAction: () => context.go('/catalog'),
+                      ),
+                      const SizedBox(height: 12),
+                      products.when(
+                        loading: () => const ProductGridSkeleton(
+                          itemCount: 4,
+                          shrinkWrap: true,
+                          physics: NeverScrollableScrollPhysics(),
+                        ),
+                        error: (_, __) => AppStatusPanel(
+                          icon: Icons.cloud_off_rounded,
+                          title: 'Produits indisponibles',
+                          message: 'Veuillez réessayer dans quelques instants.',
                           action: OutlinedButton.icon(
                             onPressed: () => ref.invalidate(productsProvider),
                             icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Actualiser'),
+                            label: const Text('Réessayer'),
                           ),
-                        );
-                      }
+                        ),
+                        data: (items) {
+                          if (items.isEmpty) {
+                            return AppStatusPanel(
+                              icon: Icons.inventory_2_outlined,
+                              title: 'Aucun produit disponible',
+                              message:
+                                  'Notre catalogue sera bientôt disponible.',
+                              action: OutlinedButton.icon(
+                                onPressed: () =>
+                                    ref.invalidate(productsProvider),
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Actualiser'),
+                              ),
+                            );
+                          }
 
-                      return ResponsiveProductGrid(
-                        products: items,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        onProductTap: (product) {
-                          ref.read(catalogRepositoryProvider).rememberProduct(
-                                product,
+                          return ResponsiveProductGrid(
+                            products: items,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            onProductTap: (product) {
+                              ref
+                                  .read(catalogRepositoryProvider)
+                                  .rememberProduct(
+                                    product,
+                                  );
+                              context.push(
+                                '/product/${product.id}',
+                                extra: product,
                               );
-                          context.push(
-                            '/product/${product.id}',
-                            extra: product,
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 18),
-                  const _SupportPanel(),
+                      ),
+                      const SizedBox(height: 18),
+                      const _SupportPanel(),
                     ],
                   ),
                 ),
@@ -1018,6 +1020,76 @@ class _CategoryRail extends StatelessWidget {
       Color(0xFFE7F8FB),
     ];
     return colors[index % colors.length];
+  }
+}
+
+class _CategoryRailSkeleton extends StatelessWidget {
+  const _CategoryRailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 112,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: 5,
+        separatorBuilder: (context, index) => const SizedBox(width: 10),
+        itemBuilder: (context, index) => DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.surface,
+                AppColors.surfaceGlow,
+                Color(0xFFF7FBFD),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(AppRadii.lg),
+            border: Border.all(color: AppColors.premiumLine),
+            boxShadow: AppShadows.soft,
+          ),
+          child: const SizedBox(
+            width: 122,
+            child: Padding(
+              padding: EdgeInsets.all(10),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _HomeSkeletonBox(width: 42, height: 42),
+                  SizedBox(height: 9),
+                  _HomeSkeletonBox(width: 76, height: 13),
+                  SizedBox(height: 5),
+                  _HomeSkeletonBox(width: 56, height: 13),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeSkeletonBox extends StatelessWidget {
+  const _HomeSkeletonBox({
+    required this.width,
+    required this.height,
+  });
+
+  final double width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+    );
   }
 }
 

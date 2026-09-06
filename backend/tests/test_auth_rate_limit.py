@@ -93,3 +93,39 @@ def test_login_endpoint_rate_limiting_and_no_email_leak():
         app.dependency_overrides.clear()
         login_rate_limiter.reset()
 
+
+def test_register_endpoint_returns_token_and_customer():
+    client = TestClient(app)
+    mock_bridge = AsyncMock()
+    mock_bridge.post.return_value = {
+        "success": True,
+        "data": {
+            "id": 42,
+            "email": "client@example.com",
+            "firstname": "Sara",
+            "lastname": "Heliantha",
+        },
+    }
+
+    app.dependency_overrides[get_bridge_client] = lambda: mock_bridge
+
+    try:
+        response = client.post(
+            "/v1/auth/register",
+            json={
+                "firstname": "Sara",
+                "lastname": "Heliantha",
+                "email": "client@example.com",
+                "password": "secret123",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["access_token"]
+        assert data["customer"]["id"] == 42
+        assert data["customer"]["email"] == "client@example.com"
+        mock_bridge.post.assert_awaited_once()
+        assert mock_bridge.post.await_args.args[0] == "auth?action=register"
+    finally:
+        app.dependency_overrides.clear()

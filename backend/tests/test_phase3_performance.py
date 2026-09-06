@@ -158,6 +158,56 @@ def test_product_image_caching_and_304_headers():
         app.dependency_overrides.pop(catalog_route.get_ps_client, None)
 
 
+def test_product_image_does_not_cache_non_image_response():
+    from app.api.routes import catalog as catalog_route
+
+    catalog_route._image_cache.clear()
+    mock_ps = AsyncMock()
+    mock_ps.get_binary = AsyncMock(return_value=(
+        b"<html>not an image</html>",
+        "text/html",
+        {},
+    ))
+    mock_ps.reset_perf = lambda: None
+    mock_ps.prestashop_calls = 1
+    mock_ps.prestashop_time_ms = 10.0
+
+    app.dependency_overrides[catalog_route.get_ps_client] = lambda: mock_ps
+    try:
+        client = TestClient(app)
+        response = client.get("/v1/products/999/image")
+
+        assert response.status_code == 404
+        assert "images/products/999" not in catalog_route._image_cache
+    finally:
+        app.dependency_overrides.pop(catalog_route.get_ps_client, None)
+
+
+def test_product_image_does_not_cache_empty_response():
+    from app.api.routes import catalog as catalog_route
+
+    catalog_route._image_cache.clear()
+    mock_ps = AsyncMock()
+    mock_ps.get_binary = AsyncMock(return_value=(
+        b"",
+        "image/jpeg",
+        {},
+    ))
+    mock_ps.reset_perf = lambda: None
+    mock_ps.prestashop_calls = 1
+    mock_ps.prestashop_time_ms = 10.0
+
+    app.dependency_overrides[catalog_route.get_ps_client] = lambda: mock_ps
+    try:
+        client = TestClient(app)
+        response = client.get("/v1/products/999/image")
+
+        assert response.status_code == 404
+        assert "images/products/999" not in catalog_route._image_cache
+    finally:
+        app.dependency_overrides.pop(catalog_route.get_ps_client, None)
+
+
 # ==============================================================================
 # 3. HTTP Client Granular Timeouts & Keepalive Limits
 # ==============================================================================

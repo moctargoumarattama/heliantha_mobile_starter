@@ -140,10 +140,10 @@ class AppCartButton extends ConsumerWidget {
     return IconButton(
       tooltip: 'Panier',
       onPressed: () {
-        if (currentLocation(context) == '/cart') {
+        if (Uri.parse(currentLocation(context)).path == '/cart') {
           return;
         }
-        context.push('/cart');
+        context.go('/cart');
       },
       icon: Badge(
         isLabelVisible: count > 0,

@@ -28,7 +28,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   final _firstname = TextEditingController();
   final _lastname = TextEditingController();
   final _email = TextEditingController();
-  final _password = TextEditingController();
+  final _loginPassword = TextEditingController();
   final _address = TextEditingController();
   final _city = TextEditingController();
   final _phone = TextEditingController();
@@ -36,7 +36,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   Future<CheckoutPreview>? _previewFuture;
   String _mode = 'guest';
   String _title = 'M.';
-  bool _createAccount = false;
   bool _terms = false;
   bool _loginLoading = false;
   bool _confirming = false;
@@ -71,7 +70,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _firstname.dispose();
     _lastname.dispose();
     _email.dispose();
-    _password.dispose();
+    _loginPassword.dispose();
     _address.dispose();
     _city.dispose();
     _phone.dispose();
@@ -136,7 +135,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   Future<void> _login() async {
-    if (_email.text.trim().isEmpty || _password.text.isEmpty) {
+    if (_email.text.trim().isEmpty || _loginPassword.text.isEmpty) {
       setState(() => _message = 'Renseignez votre email et mot de passe.');
       return;
     }
@@ -149,7 +148,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     try {
       await ref.read(authRepositoryProvider).login(
             email: _email.text.trim(),
-            password: _password.text,
+            password: _loginPassword.text,
           );
       ref.invalidate(currentUserProvider);
       ref.invalidate(addressesProvider);
@@ -220,9 +219,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     'firstname': _firstname.text.trim(),
                     'lastname': _lastname.text.trim(),
                     'email': _email.text.trim(),
-                    'create_account': _createAccount,
-                    if (_createAccount && _password.text.isNotEmpty)
-                      'password': _password.text,
                   }
                 : null,
             address: isConnected
@@ -406,18 +402,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                                     firstname: _firstname,
                                     lastname: _lastname,
                                     email: _email,
-                                    password: _password,
-                                    createAccount: _createAccount,
                                     onTitleChanged: (value) =>
                                         setState(() => _title = value),
-                                    onCreateAccountChanged: (value) => setState(
-                                      () => _createAccount = value,
-                                    ),
                                   )
                                 else
                                   _LoginStep(
                                     email: _email,
-                                    password: _password,
+                                    password: _loginPassword,
                                     loading: _loginLoading,
                                     onLogin: _login,
                                   ),
@@ -556,20 +547,14 @@ class _GuestStep extends StatelessWidget {
     required this.firstname,
     required this.lastname,
     required this.email,
-    required this.password,
-    required this.createAccount,
     required this.onTitleChanged,
-    required this.onCreateAccountChanged,
   });
 
   final String title;
   final TextEditingController firstname;
   final TextEditingController lastname;
   final TextEditingController email;
-  final TextEditingController password;
-  final bool createAccount;
   final ValueChanged<String> onTitleChanged;
-  final ValueChanged<bool> onCreateAccountChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -598,22 +583,6 @@ class _GuestStep extends StatelessWidget {
             label: 'E-mail',
             keyboardType: TextInputType.emailAddress,
           ),
-          Material(
-            color: Colors.transparent,
-            child: CheckboxListTile(
-              value: createAccount,
-              onChanged: (value) => onCreateAccountChanged(value ?? false),
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              title: const Text('Créer votre compte'),
-            ),
-          ),
-          if (createAccount)
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Mot de passe'),
-            ),
         ],
       ),
     );

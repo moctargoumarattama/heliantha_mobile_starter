@@ -231,6 +231,11 @@ async def product_image(
             return cached_inner
 
         content, content_type, headers = await ps.get_binary(path)
+        if not content or not content_type.lower().startswith("image/"):
+            raise PrestaShopError(
+                f"Image PrestaShop invalide pour {path}: "
+                f"content_type={content_type!r} bytes={len(content)}"
+            )
         sha1 = headers.get("content-sha1")
         if not sha1:
             sha1 = hashlib.sha1(content).hexdigest()

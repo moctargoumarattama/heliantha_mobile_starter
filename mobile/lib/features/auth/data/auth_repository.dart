@@ -23,6 +23,26 @@ class AuthRepository {
     return data;
   }
 
+  Future<Map<String, dynamic>> register({
+    required String firstname,
+    required String lastname,
+    required String email,
+    required String password,
+  }) async {
+    final response = await _api.dio.post(
+      '/v1/auth/register',
+      data: {
+        'firstname': firstname,
+        'lastname': lastname,
+        'email': email,
+        'password': password,
+      },
+    );
+    final data = Map<String, dynamic>.from(response.data['data'] as Map);
+    await _storage.save(data['access_token'].toString());
+    return data;
+  }
+
   Future<Map<String, dynamic>?> me() async {
     try {
       final response = await _api.dio.get('/v1/me');

@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -123,7 +125,7 @@ class _ProductBody extends ConsumerWidget {
                     'Ajouté au panier',
                     action: SnackBarAction(
                       label: 'Voir',
-                      onPressed: () => context.push('/cart'),
+                      onPressed: () => context.go('/cart'),
                     ),
                   );
                 },
@@ -179,26 +181,365 @@ class _ProductImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final url = absoluteApiUrl(imageUrl);
     return SizedBox(
       height: height,
       width: double.infinity,
       child: AppSurface(
         padding: const EdgeInsets.all(14),
         radius: AppRadii.lg,
-        child: imageUrl == null
+        child: url.isEmpty
             ? const _ProductImageFallback()
             : ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadii.sm),
-                child: CachedNetworkImage(
-                  imageUrl: absoluteApiUrl(imageUrl),
-                  fit: BoxFit.contain,
-                  placeholder: (_, __) => const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                  errorWidget: (_, __, ___) => const _ProductImageFallback(),
-                ),
+                child: _ProductImagePreview(url: url),
               ),
       ),
+    );
+  }
+}
+
+class _ProductImagePreview extends StatefulWidget {
+  const _ProductImagePreview({required this.url});
+
+  final String url;
+
+  @override
+  State<_ProductImagePreview> createState() => _ProductImagePreviewState();
+}
+
+class _ProductImagePreviewState extends State<_ProductImagePreview> {
+  bool _hovered = false;
+
+  Future<void> _openViewer() {
+    return showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Fermer',
+      barrierColor: Colors.black.withValues(alpha: 0.86),
+      transitionDuration: const Duration(milliseconds: 180),
+      pageBuilder: (_, __, ___) => _ProductImageViewer(url: widget.url),
+      transitionBuilder: (_, animation, __, child) {
+        return FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ),
+          child: child,
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.zoomIn,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Semantics(
+        button: true,
+        label: 'Agrandir l’image produit',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _openViewer,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _ProductNetworkImage(url: widget.url),
+              Positioned(
+                right: 10,
+                bottom: 10,
+                child: Tooltip(
+                  message: 'Agrandir',
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 160),
+                    opacity: _hovered ? 1 : 0.82,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppColors.navy.withValues(alpha: 0.74),
+                        borderRadius: BorderRadius.circular(AppRadii.md),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.20),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.zoom_in_rounded,
+                        size: 21,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductImageViewer extends StatefulWidget {
+  const _ProductImageViewer({required this.url});
+
+  final String url;
+
+  @override
+  State<_ProductImageViewer> createState() => _ProductImageViewerState();
+}
+
+class _ProductImageViewerState extends State<_ProductImageViewer>
+    with SingleTickerProviderStateMixin {
+  late final TransformationController _controller;
+  Animation<Matrix4>? _animation;
+  late final AnimationController _animationController;
+  Offset _doubleTapPosition = Offset.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TransformationController();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    )..addListener(() {
+        final animation = _animation;
+        if (animation != null) {
+          _controller.value = animation.value;
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _animateTo(Matrix4 target) {
+    _animationController.stop();
+    _animation = Matrix4Tween(
+      begin: _controller.value,
+      end: target,
+    ).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _animationController.forward(from: 0);
+  }
+
+  void _resetZoom() {
+    _animateTo(Matrix4.identity());
+  }
+
+  void _zoomBy(double delta) {
+    final current = _controller.value.getMaxScaleOnAxis();
+    final next = (current + delta).clamp(1.0, 5.0);
+    final matrix = Matrix4.copy(_controller.value);
+    final factor = next / current;
+    matrix.storage[0] *= factor;
+    matrix.storage[5] *= factor;
+    matrix.storage[10] *= factor;
+    _animateTo(matrix);
+  }
+
+  void _toggleDoubleTapZoom() {
+    final current = _controller.value.getMaxScaleOnAxis();
+    if (current > 1.01) {
+      _resetZoom();
+      return;
+    }
+
+    const targetScale = 2.5;
+    final position = _doubleTapPosition;
+    final matrix = Matrix4.identity();
+    matrix.storage[0] = targetScale;
+    matrix.storage[5] = targetScale;
+    matrix.storage[10] = targetScale;
+    matrix.storage[12] = -position.dx * (targetScale - 1);
+    matrix.storage[13] = -position.dy * (targetScale - 1);
+    _animateTo(matrix);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Shortcuts(
+      shortcuts: {
+        LogicalKeySet(LogicalKeyboardKey.escape): const DismissIntent(),
+      },
+      child: Actions(
+        actions: {
+          DismissIntent: CallbackAction<DismissIntent>(
+            onInvoke: (_) {
+              Navigator.of(context).maybePop();
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: SafeArea(
+            child: Material(
+              color: Colors.transparent,
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onDoubleTapDown: (details) {
+                        _doubleTapPosition = details.localPosition;
+                      },
+                      onDoubleTap: _toggleDoubleTapZoom,
+                      child: InteractiveViewer(
+                        transformationController: _controller,
+                        minScale: 1,
+                        maxScale: 5,
+                        boundaryMargin: const EdgeInsets.all(80),
+                        child: Center(
+                          child: _ProductNetworkImage(url: widget.url),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Tooltip(
+                      message: 'Fermer',
+                      child: _ViewerIconButton(
+                        icon: Icons.close_rounded,
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  ),
+                  if (kIsWeb)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 18,
+                      child: Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: AppColors.navy.withValues(alpha: 0.62),
+                            borderRadius: BorderRadius.circular(AppRadii.md),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Tooltip(
+                                  message: 'Zoom arrière',
+                                  child: _ViewerIconButton(
+                                    icon: Icons.remove_rounded,
+                                    onPressed: () => _zoomBy(-0.5),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Tooltip(
+                                  message: 'Réinitialiser',
+                                  child: _ViewerIconButton(
+                                    icon: Icons.center_focus_strong_rounded,
+                                    onPressed: _resetZoom,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Tooltip(
+                                  message: 'Zoom avant',
+                                  child: _ViewerIconButton(
+                                    icon: Icons.add_rounded,
+                                    onPressed: () => _zoomBy(0.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ViewerIconButton extends StatelessWidget {
+  const _ViewerIconButton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 44,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.white.withValues(alpha: 0.12),
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+          ),
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 22),
+      ),
+    );
+  }
+}
+
+class _ProductNetworkImage extends StatelessWidget {
+  const _ProductNetworkImage({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return Image.network(
+        url,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.contain,
+        headers: const {'Accept': 'image/*'},
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) {
+            return child;
+          }
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        },
+        errorBuilder: (_, __, ___) => const _ProductImageFallback(),
+      );
+    }
+
+    return CachedNetworkImage(
+      imageUrl: url,
+      httpHeaders: const {'Accept': 'image/*'},
+      fit: BoxFit.contain,
+      placeholder: (_, __) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+      errorWidget: (_, __, ___) => const _ProductImageFallback(),
     );
   }
 }
@@ -342,7 +683,8 @@ class _ProductInformationTabsState extends State<_ProductInformationTabs> {
             contentKey: 'description',
             loadingKey: 'description-loading',
             emptyKey: 'description-empty',
-            emptyMessage: 'La description n’est pas disponible pour ce produit.',
+            emptyMessage:
+                'La description n’est pas disponible pour ce produit.',
           )
         : _tabContent(
             html: technicalDetails,
@@ -366,9 +708,7 @@ class _ProductInformationTabsState extends State<_ProductInformationTabs> {
               for (var i = 0; i < tabs.length; i++)
                 _ProductInfoTabButton(
                   label: tabs[i],
-                  icon: i == 0
-                      ? Icons.article_outlined
-                      : Icons.tune_rounded,
+                  icon: i == 0 ? Icons.article_outlined : Icons.tune_rounded,
                   selected: effectiveIndex == i,
                   onTap: () => setState(() => _index = i),
                 ),
@@ -610,8 +950,7 @@ class _HtmlBlockView extends StatelessWidget {
       color: block.type == _HtmlBlockType.heading
           ? AppColors.ink
           : AppColors.muted,
-      fontWeight:
-          block.type == _HtmlBlockType.heading ? FontWeight.w900 : null,
+      fontWeight: block.type == _HtmlBlockType.heading ? FontWeight.w900 : null,
       height: block.type == _HtmlBlockType.heading ? 1.25 : 1.5,
     );
     final richText = Text.rich(
@@ -735,7 +1074,8 @@ void _addListBlocks(
     }
     blocks.add(
       _HtmlBlock(
-        type: ordered ? _HtmlBlockType.orderedListItem : _HtmlBlockType.listItem,
+        type:
+            ordered ? _HtmlBlockType.orderedListItem : _HtmlBlockType.listItem,
         html: item!,
         order: ordered ? index : null,
       ),
@@ -861,14 +1201,18 @@ String _decodeHtmlEntities(String value) {
     RegExp(r'&#x([0-9a-fA-F]+);'),
     (match) {
       final codePoint = int.tryParse(match.group(1)!, radix: 16);
-      return codePoint == null ? match.group(0)! : String.fromCharCode(codePoint);
+      return codePoint == null
+          ? match.group(0)!
+          : String.fromCharCode(codePoint);
     },
   );
   output = output.replaceAllMapped(
     RegExp(r'&#([0-9]+);'),
     (match) {
       final codePoint = int.tryParse(match.group(1)!);
-      return codePoint == null ? match.group(0)! : String.fromCharCode(codePoint);
+      return codePoint == null
+          ? match.group(0)!
+          : String.fromCharCode(codePoint);
     },
   );
   for (final entry in named.entries) {

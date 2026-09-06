@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/router/navigation_helpers.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
@@ -439,7 +438,7 @@ class _OrderSummary extends StatelessWidget {
                 if (isAuthenticated) {
                   context.push('/checkout');
                 } else {
-                  context.push(loginLocationFor('/checkout'));
+                  context.push('/checkout/start');
                 }
               },
               icon: const Icon(Icons.lock_open_rounded),

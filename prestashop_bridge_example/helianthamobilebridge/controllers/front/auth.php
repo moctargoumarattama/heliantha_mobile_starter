@@ -58,6 +58,12 @@ class HelianthaMobileBridgeAuthModuleFrontController
         $email = trim((string) ($body['email'] ?? ''));
         $password = (string) ($body['password'] ?? '');
 
+        $action = (string) Tools::getValue('action', 'login');
+        if ($action === 'register') {
+            $this->registerCustomer($body, $email, $password);
+            return;
+        }
+
         if (!Validate::isEmail($email) || $password === '') {
             $this->respond(422, [
                 'success' => false,
@@ -83,6 +89,74 @@ class HelianthaMobileBridgeAuthModuleFrontController
                 'error' => [
                     'code' => 'BAD_LOGIN',
                     'message' => 'Email ou mot de passe incorrect.',
+                ],
+            ]);
+        }
+
+        $this->respond(200, [
+            'success' => true,
+            'data' => [
+                'id' => (int) $customer->id,
+                'email' => (string) $customer->email,
+                'firstname' => (string) $customer->firstname,
+                'lastname' => (string) $customer->lastname,
+            ],
+        ]);
+    }
+
+    private function registerCustomer($body, $email, $password)
+    {
+        $firstname = trim((string) ($body['firstname'] ?? ''));
+        $lastname = trim((string) ($body['lastname'] ?? ''));
+
+        if (!Validate::isEmail($email)
+            || $password === ''
+            || $firstname === ''
+            || $lastname === '') {
+            $this->respond(422, [
+                'success' => false,
+                'error' => [
+                    'code' => 'INVALID_REGISTER_DATA',
+                    'message' => 'Informations de création de compte invalides.',
+                ],
+            ]);
+        }
+
+        if (Customer::customerExists($email)) {
+            $this->respond(409, [
+                'success' => false,
+                'error' => [
+                    'code' => 'CUSTOMER_EXISTS',
+                    'message' => 'Un compte existe déjà avec cet email.',
+                ],
+            ]);
+        }
+
+        $customer = new Customer();
+        $customer->firstname = $firstname;
+        $customer->lastname = $lastname;
+        $customer->email = $email;
+        $customer->passwd = Tools::hash($password);
+        $customer->active = 1;
+        $customer->is_guest = 0;
+
+        $fields = $customer->validateFields(false, true);
+        if ($fields !== true) {
+            $this->respond(422, [
+                'success' => false,
+                'error' => [
+                    'code' => 'INVALID_CUSTOMER_FIELDS',
+                    'message' => 'Informations client invalides.',
+                ],
+            ]);
+        }
+
+        if (!$customer->add()) {
+            $this->respond(500, [
+                'success' => false,
+                'error' => [
+                    'code' => 'CUSTOMER_CREATE_FAILED',
+                    'message' => 'Compte non créé.',
                 ],
             ]);
         }

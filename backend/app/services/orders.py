@@ -30,7 +30,7 @@ ORDER_STATE_CACHE_TTL_SECONDS = 300
 
 
 class OrdersService:
-    _state_cache: dict[int, tuple[float, str]] = {}
+    _state_cache: dict[tuple[int, int], tuple[float, str]] = {}
 
     def __init__(
         self,
@@ -155,11 +155,12 @@ class OrdersService:
         if not clean_ids:
             return {}
 
+        language_id = self.ps.settings.prestashop_language_id
         now = monotonic()
         output: dict[int, str] = {}
         missing: list[int] = []
         for state_id in clean_ids:
-            cached = self.__class__._state_cache.get(state_id)
+            cached = self.__class__._state_cache.get((language_id, state_id))
             if cached and cached[0] > now:
                 output[state_id] = cached[1]
             else:
@@ -181,13 +182,14 @@ class OrdersService:
                     state_id = to_int(row.get("id"))
                     name = localized(
                         row.get("name"),
-                        self.ps.settings.prestashop_language_id,
+                        language_id,
                     ).strip()
                     if state_id and name:
-                        output[state_id] = name
-                        self.__class__._state_cache[state_id] = (
+                        localized_name = self._localized_state_fallback(name)
+                        output[state_id] = localized_name
+                        self.__class__._state_cache[(language_id, state_id)] = (
                             now + ORDER_STATE_CACHE_TTL_SECONDS,
-                            name,
+                            localized_name,
                         )
             except PrestaShopError:
                 logger.exception(
@@ -196,6 +198,27 @@ class OrdersService:
                 )
 
         return output
+
+    def _localized_state_fallback(self, name: str) -> str:
+        translations = {
+            "awaiting payment": "En attente de paiement",
+            "waiting for payment": "En attente de paiement",
+            "payment accepted": "Paiement accepté",
+            "processing in progress": "En cours de préparation",
+            "shipped": "Expédié",
+            "delivered": "Livré",
+            "canceled": "Annulé",
+            "cancelled": "Annulé",
+            "refunded": "Remboursé",
+            "payment error": "Erreur de paiement",
+            "on backorder (paid)": "En attente de réapprovisionnement (payé)",
+            "on backorder (not paid)": "En attente de réapprovisionnement (non payé)",
+            "remote payment accepted": "Paiement à distance accepté",
+            "awaiting cash on delivery validation": (
+                "En attente de paiement à la livraison"
+            ),
+        }
+        return translations.get(name.strip().lower(), name)
 
     def _state_id(self, row: dict[str, Any]) -> int:
         return to_int(

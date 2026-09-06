@@ -1,6 +1,7 @@
 ﻿import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -27,9 +28,12 @@ class ProductCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final favorites = ref.watch(favoritesProvider);
-    final user = ref.watch(currentUserProvider).valueOrNull;
-    final isFavorite = favorites.contains(product.id);
+    final isFavorite = ref.watch(
+      favoritesProvider.select((favorites) => favorites.contains(product.id)),
+    );
+    final isLoggedIn = ref.watch(
+      currentUserProvider.select((user) => user.valueOrNull != null),
+    );
     final price = formatMoney(
       product.price,
       currency: product.currency,
@@ -101,10 +105,11 @@ class ProductCard extends ConsumerWidget {
                               : Icons.favorite_border_rounded,
                           color: isFavorite ? AppColors.danger : AppColors.navy,
                           onPressed: () {
-                            if (user == null) {
+                            if (!isLoggedIn) {
                               openLoginForCurrentLocation(context);
                               return;
                             }
+                            HapticFeedback.selectionClick();
                             ref
                                 .read(favoritesProvider.notifier)
                                 .toggle(product.id);
@@ -188,13 +193,14 @@ class ProductCard extends ConsumerWidget {
   }
 
   void _addToCart(BuildContext context, WidgetRef ref) {
+    HapticFeedback.selectionClick();
     ref.read(cartProvider.notifier).add(product);
     AppFeedback.success(
       context,
       'Ajouté au panier',
       action: SnackBarAction(
         label: 'Voir',
-        onPressed: () => context.push('/cart'),
+        onPressed: () => context.go('/cart'),
       ),
     );
   }
@@ -343,22 +349,36 @@ class _CartButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 38,
-      child: IconButton.filled(
-        tooltip: 'Ajouter au panier',
-        padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
-          backgroundColor: enabled ? AppColors.blue : AppColors.border,
-          foregroundColor: Colors.white,
-          disabledBackgroundColor: AppColors.border,
-          disabledForegroundColor: AppColors.muted,
-          shape: RoundedRectangleBorder(
+    final backgroundColor = enabled ? AppColors.blue : AppColors.border;
+    final foregroundColor = enabled ? Colors.white : AppColors.muted;
+
+    return Tooltip(
+      message: 'Ajouter au panier',
+      child: SizedBox.square(
+        dimension: 44,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: InkWell(
             borderRadius: BorderRadius.circular(AppRadii.sm),
+            onTap: enabled ? onPressed : null,
+            child: Center(
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: backgroundColor,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: Icon(
+                  Icons.add_shopping_cart_rounded,
+                  size: 19,
+                  color: foregroundColor,
+                ),
+              ),
+            ),
           ),
         ),
-        onPressed: enabled ? onPressed : null,
-        icon: const Icon(Icons.add_shopping_cart_rounded, size: 19),
       ),
     );
   }
@@ -379,20 +399,30 @@ class _RoundIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 34,
-      child: IconButton(
-        tooltip: tooltip,
-        padding: EdgeInsets.zero,
-        style: IconButton.styleFrom(
-          backgroundColor: AppColors.surface,
-          foregroundColor: color,
-          shape: RoundedRectangleBorder(
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox.square(
+        dimension: 44,
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          child: InkWell(
             borderRadius: BorderRadius.circular(AppRadii.md),
+            onTap: onPressed,
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                ),
+                child: Icon(icon, size: 19, color: color),
+              ),
+            ),
           ),
         ),
-        onPressed: onPressed,
-        icon: Icon(icon, size: 19),
       ),
     );
   }

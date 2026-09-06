@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../features/account/presentation/account_screen.dart';
 import '../../features/addresses/presentation/addresses_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/register_screen.dart';
 import '../../features/cart/presentation/cart_screen.dart';
 import '../../features/catalog/presentation/catalog_screen.dart';
+import '../../features/checkout/presentation/checkout_start_screen.dart';
 import '../../features/checkout/presentation/checkout_screen.dart';
 import '../../features/favorites/presentation/favorites_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
@@ -18,13 +20,35 @@ import '../../features/product/presentation/product_screen.dart';
 import '../../shared/models/product.dart';
 import '../../shared/theme/app_colors.dart';
 
+final _rootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
+final _homeNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'homeBranch',
+);
+final _catalogNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'catalogBranch',
+);
+final _favoritesNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'favoritesBranch',
+);
+final _cartNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'cartBranch',
+);
+final _accountNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'accountBranch',
+);
+
 final appRouter = GoRouter(
+  navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
   routes: [
     StatefulShellRoute.indexedStack(
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (context, state, shell) => _Shell(shell: shell),
       branches: [
         StatefulShellBranch(
+          navigatorKey: _homeNavigatorKey,
           routes: [
             GoRoute(
               path: '/',
@@ -33,6 +57,7 @@ final appRouter = GoRouter(
           ],
         ),
         StatefulShellBranch(
+          navigatorKey: _catalogNavigatorKey,
           routes: [
             GoRoute(
               path: '/catalog',
@@ -47,6 +72,7 @@ final appRouter = GoRouter(
           ],
         ),
         StatefulShellBranch(
+          navigatorKey: _favoritesNavigatorKey,
           routes: [
             GoRoute(
               path: '/favorites',
@@ -55,6 +81,7 @@ final appRouter = GoRouter(
           ],
         ),
         StatefulShellBranch(
+          navigatorKey: _cartNavigatorKey,
           routes: [
             GoRoute(
               path: '/cart',
@@ -63,6 +90,7 @@ final appRouter = GoRouter(
           ],
         ),
         StatefulShellBranch(
+          navigatorKey: _accountNavigatorKey,
           routes: [
             GoRoute(
               path: '/account',
@@ -74,10 +102,12 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/products/:id',
+      parentNavigatorKey: _rootNavigatorKey,
       redirect: (_, state) => '/product/${state.pathParameters['id']}',
     ),
     GoRoute(
       path: '/product/:id',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, state) => ProductScreen(
         productId: int.parse(state.pathParameters['id']!),
         initialProduct: state.extra is Product ? state.extra as Product : null,
@@ -85,20 +115,36 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/login',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, state) => LoginScreen(
         redirectLocation: state.uri.queryParameters['redirect'],
       ),
     ),
     GoRoute(
+      path: '/register',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (_, state) => RegisterScreen(
+        redirectLocation: state.uri.queryParameters['redirect'],
+      ),
+    ),
+    GoRoute(
+      path: '/checkout/start',
+      parentNavigatorKey: _rootNavigatorKey,
+      builder: (_, __) => const CheckoutStartScreen(),
+    ),
+    GoRoute(
       path: '/orders',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, __) => const OrdersScreen(),
     ),
     GoRoute(
       path: '/notifications',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, __) => const NotificationsScreen(),
     ),
     GoRoute(
       path: '/orders/:id',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, state) => OrderDetailScreen(
         orderId: int.parse(state.pathParameters['id']!),
         initialOrder:
@@ -107,12 +153,14 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/addresses',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, state) => AddressesScreen(
         from: state.uri.queryParameters['from'],
       ),
     ),
     GoRoute(
       path: '/checkout',
+      parentNavigatorKey: _rootNavigatorKey,
       builder: (_, __) => const CheckoutScreen(),
     ),
   ],

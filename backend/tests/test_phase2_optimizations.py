@@ -82,6 +82,52 @@ async def test_orders_payload_attempts_rich_display_first():
     assert "display" in call_kwargs
 
 
+async def test_order_state_names_use_configured_language_and_french_fallback():
+    OrdersService._state_cache = {}
+    mock_ps = AsyncMock(spec=PrestaShopClient)
+    mock_ps.settings = Settings(
+        app_env="development",
+        jwt_secret="secret_for_testing_purposes_only_32_chars!",
+        prestashop_language_id=3,
+    )
+    mock_ps.list_resource.return_value = {
+        "order_states": [
+            {"id": "3", "name": "En cours de préparation"},
+            {"id": "14", "name": "Waiting for payment"},
+        ]
+    }
+
+    service = OrdersService(mock_ps, bridge=AsyncMock())
+    states = await service._state_names({3, 14})
+
+    assert states[3] == "En cours de préparation"
+    assert states[14] == "En attente de paiement"
+    assert mock_ps.list_resource.call_args.kwargs["params"] == {"language": 3}
+
+
+async def test_order_state_cache_is_scoped_by_language():
+    OrdersService._state_cache = {
+        (1, 3): (9999999999.0, "Processing in progress"),
+    }
+    mock_ps = AsyncMock(spec=PrestaShopClient)
+    mock_ps.settings = Settings(
+        app_env="development",
+        jwt_secret="secret_for_testing_purposes_only_32_chars!",
+        prestashop_language_id=3,
+    )
+    mock_ps.list_resource.return_value = {
+        "order_states": [
+            {"id": "3", "name": "En cours de préparation"},
+        ]
+    }
+
+    service = OrdersService(mock_ps, bridge=AsyncMock())
+    states = await service._state_names({3})
+
+    assert states[3] == "En cours de préparation"
+    mock_ps.list_resource.assert_awaited_once()
+
+
 async def test_morocco_country_id_shared_cache():
     geo_module._morocco_country_cache = None
     mock_ps = AsyncMock(spec=PrestaShopClient)

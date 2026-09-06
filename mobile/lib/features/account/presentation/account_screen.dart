@@ -218,11 +218,33 @@ class _GuestView extends StatelessWidget {
                 icon: Icons.person_outline_rounded,
                 title: 'Bienvenue chez Heliantha',
                 message:
-                    'Connectez-vous avec votre compte client pour retrouver vos commandes.',
-                action: FilledButton.icon(
-                  onPressed: () => context.push(loginLocationFor('/account')),
-                  icon: const Icon(Icons.login_rounded),
-                  label: const Text('Se connecter'),
+                    'Connectez-vous ou créez votre compte pour retrouver vos commandes.',
+                action: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => context.push(loginLocationFor('/account')),
+                      icon: const Icon(Icons.login_rounded),
+                      label: const Text('Se connecter'),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => context.push(
+                        '/register?redirect=${Uri.encodeComponent('/account')}',
+                      ),
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      label: const Text('Créer un compte'),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Vous pouvez aussi parcourir les produits et commander sans compte.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.muted,
+                            height: 1.35,
+                          ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 18),
