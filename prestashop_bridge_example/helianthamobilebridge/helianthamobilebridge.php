@@ -5,6 +5,8 @@ if (!defined('_PS_VERSION_')) {
 
 class HelianthaMobileBridge extends Module
 {
+    private static $createdOrderIds = [];
+
     public function __construct()
     {
         $this->name = 'helianthamobilebridge';
@@ -23,6 +25,7 @@ class HelianthaMobileBridge extends Module
     public function install()
     {
         return parent::install()
+            && $this->registerHook('actionValidateOrder')
             && $this->registerHook('actionOrderStatusPostUpdate')
             && $this->registerHook('actionUpdateQuantity')
             && Configuration::updateValue(
@@ -43,82 +46,195 @@ class HelianthaMobileBridge extends Module
             && parent::uninstall();
     }
 
+    public function hookActionValidateOrder($params)
+    {
+        try {
+            $order = $params['order'] ?? null;
+            $orderId = 0;
+            $reference = '';
+            $customerId = 0;
+
+            if ($order instanceof Order || (is_object($order) && isset($order->id))) {
+                $orderId = (int) $order->id;
+                $reference = (string) ($order->reference ?? '');
+                $customerId = (int) ($order->id_customer ?? 0);
+            } elseif (isset($params['id_order'])) {
+                $orderId = (int) $params['id_order'];
+            }
+
+            if ($orderId <= 0) {
+                return;
+            }
+
+            self::$createdOrderIds[$orderId] = true;
+
+            $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
+                'type' => 'ORDER_STATUS',
+                'order_id' => $orderId,
+                'status_key' => 'order-created-' . $orderId,
+                'metadata' => [
+                    'source' => 'actionValidateOrder',
+                    'event' => 'order_created',
+                    'reference' => $reference,
+                    'customer_id' => $customerId,
+                ],
+            ]);
+        } catch (Throwable $e) {
+            if (class_exists('PrestaShopLogger')) {
+                PrestaShopLogger::addLog(
+                    'HelianthaMobileBridge hookActionValidateOrder error: ' . $e->getMessage(),
+                    2
+                );
+            }
+        }
+    }
+
     public function hookActionOrderStatusPostUpdate($params)
     {
-        $orderId = (int) ($params['id_order'] ?? 0);
-        $state = $params['newOrderStatus'] ?? null;
-        if ($orderId <= 0 || !Validate::isLoadedObject($state)) {
-            return;
-        }
+        try {
+            $orderId = (int) ($params['id_order'] ?? 0);
+            $state = $params['newOrderStatus'] ?? null;
+            if ($orderId <= 0 || !Validate::isLoadedObject($state)) {
+                return;
+            }
 
-        $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
-            'type' => 'ORDER_STATUS',
-            'order_id' => $orderId,
-            'status_key' => 'order-' . (int) $state->id,
-            'metadata' => ['source' => 'actionOrderStatusPostUpdate'],
-        ]);
+            // Éviter le doublon si la commande vient d'être validée dans la même requête
+            if (isset(self::$createdOrderIds[$orderId])) {
+                return;
+            }
 
-        if ((bool) $state->paid) {
+            // Éviter le doublon lors de la création initiale de commande
+            try {
+                $historyCount = (int) Db::getInstance()->getValue(
+                    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'order_history` WHERE `id_order` = ' . (int) $orderId
+                );
+                if ($historyCount <= 1) {
+                    return;
+                }
+            } catch (Throwable $e) {
+                // Continuer si la requête DB échoue
+            }
+
             $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
-                'type' => 'PAYMENT_STATUS',
+                'type' => 'ORDER_STATUS',
                 'order_id' => $orderId,
-                'status_key' => 'payment-paid-' . (int) $state->id,
-                'metadata' => ['source' => 'actionOrderStatusPostUpdate'],
+                'status_key' => 'order-' . (int) $state->id,
+                'metadata' => [
+                    'source' => 'actionOrderStatusPostUpdate',
+                    'state_id' => (int) $state->id,
+                ],
             ]);
+
+            if ((bool) $state->paid) {
+                $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
+                    'type' => 'PAYMENT_STATUS',
+                    'order_id' => $orderId,
+                    'status_key' => 'payment-paid-' . (int) $state->id,
+                    'metadata' => [
+                        'source' => 'actionOrderStatusPostUpdate',
+                        'state_id' => (int) $state->id,
+                    ],
+                ]);
+            }
+        } catch (Throwable $e) {
+            if (class_exists('PrestaShopLogger')) {
+                PrestaShopLogger::addLog(
+                    'HelianthaMobileBridge hookActionOrderStatusPostUpdate error: ' . $e->getMessage(),
+                    2
+                );
+            }
         }
     }
 
     public function hookActionUpdateQuantity($params)
     {
-        $productId = (int) ($params['id_product'] ?? 0);
-        if ($productId <= 0) {
-            return;
+        try {
+            $productId = (int) ($params['id_product'] ?? 0);
+            if ($productId <= 0) {
+                return;
+            }
+
+            $quantity = (int) ($params['quantity'] ?? 0);
+            $product = new Product($productId, false, (int) $this->context->language->id);
+            $name = Validate::isLoadedObject($product) ? (string) $product->name : '';
+
+            $this->postMobileNotificationEvent('/v1/notifications/favorite-stock', [
+                'product_id' => $productId,
+                'quantity' => $quantity,
+                'product_name' => $name,
+                'id_shop' => (int) $this->context->shop->id,
+            ]);
+        } catch (Throwable $e) {
+            if (class_exists('PrestaShopLogger')) {
+                PrestaShopLogger::addLog(
+                    'HelianthaMobileBridge hookActionUpdateQuantity error: ' . $e->getMessage(),
+                    2
+                );
+            }
         }
-
-        $quantity = (int) ($params['quantity'] ?? 0);
-        $product = new Product($productId, false, (int) $this->context->language->id);
-        $name = Validate::isLoadedObject($product) ? (string) $product->name : '';
-
-        $this->postMobileNotificationEvent('/v1/notifications/favorite-stock', [
-            'product_id' => $productId,
-            'quantity' => $quantity,
-            'product_name' => $name,
-            'id_shop' => (int) $this->context->shop->id,
-        ]);
     }
 
     private function postMobileNotificationEvent($path, $payload)
     {
-        $apiUrl = rtrim((string) Configuration::get('HELIANTHA_MOBILE_API_URL'), '/');
-        $secret = (string) Configuration::get('HELIANTHA_MOBILE_NOTIFICATION_SECRET');
-        if ($apiUrl === '' || $secret === '' || strpos($apiUrl, 'https://') !== 0) {
-            return;
-        }
+        try {
+            $apiUrl = rtrim((string) Configuration::get('HELIANTHA_MOBILE_API_URL'), '/');
+            if ($apiUrl === '') {
+                $apiUrl = 'https://api.heliantha.ma';
+            }
+            $secret = (string) Configuration::get('HELIANTHA_MOBILE_BRIDGE_SECRET');
+            if ($secret === '') {
+                $secret = (string) Configuration::get('HELIANTHA_MOBILE_NOTIFICATION_SECRET');
+            }
+            if ($apiUrl === '' || $secret === '') {
+                return;
+            }
 
-        $ch = curl_init($apiUrl . $path);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'X-Heliantha-Bridge-Secret: ' . $secret,
-        ]);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_exec($ch);
-        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($status >= 400) {
-            PrestaShopLogger::addLog(
-                'HelianthaMobileBridge notification HTTP ' . $status,
-                2
-            );
+            $ch = curl_init($apiUrl . $path);
+            if ($ch === false) {
+                return;
+            }
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'X-Heliantha-Bridge-Secret: ' . $secret,
+            ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            curl_exec($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($status >= 400 && class_exists('PrestaShopLogger')) {
+                PrestaShopLogger::addLog(
+                    'HelianthaMobileBridge notification HTTP ' . $status . ' path=' . $path,
+                    2
+                );
+            }
+            curl_close($ch);
+        } catch (Throwable $e) {
+            if (class_exists('PrestaShopLogger')) {
+                PrestaShopLogger::addLog(
+                    'HelianthaMobileBridge notification error: ' . $e->getMessage(),
+                    2
+                );
+            }
         }
-        curl_close($ch);
     }
 
     public function getContent()
     {
         $html = '';
+
+        // Auto-enregistrement des hooks indispensables lors de la visite de la config
+        if (!$this->isRegisteredInHook('actionValidateOrder')) {
+            $this->registerHook('actionValidateOrder');
+        }
+        if (!$this->isRegisteredInHook('actionOrderStatusPostUpdate')) {
+            $this->registerHook('actionOrderStatusPostUpdate');
+        }
+        if (!$this->isRegisteredInHook('actionUpdateQuantity')) {
+            $this->registerHook('actionUpdateQuantity');
+        }
 
         if (Tools::isSubmit('submitHelianthaMobileBridge')) {
             $bridgeSecret = trim((string) Tools::getValue('bridge_secret'));
@@ -153,7 +269,7 @@ class HelianthaMobileBridge extends Module
                 <br><br>
                 <label>URL HTTPS publique API mobile FastAPI</label>
                 <input type="text" name="mobile_api_url" value="' . htmlspecialchars($apiUrl) . '" />
-                <p class="help-block">Laisser vide en developpement local. Ne pas utiliser http://127.0.0.1:8000 sur le serveur PrestaShop.</p>
+                <p class="help-block">Par defaut: https://api.heliantha.ma. Ne pas utiliser http://127.0.0.1:8000 sur le serveur PrestaShop.</p>
                 <br>
                 <button class="btn btn-primary" name="submitHelianthaMobileBridge" type="submit">
                     Enregistrer

@@ -97,3 +97,130 @@ def test_customer_isolation(service):
     )
 
     assert [row.title for row in service.list_notifications(10)] == ["A"]
+
+
+def test_prestashop_event_order_created_and_status_update(service):
+    from unittest.mock import AsyncMock
+    from starlette.testclient import TestClient
+    from app.main import app
+    from app.api.deps import get_ps_client, get_notification_service
+    from app.core.security import create_access_token
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    mock_ps = AsyncMock()
+
+    async def mock_get_resource(resource, resource_id, params=None):
+        if resource == "orders":
+            return {
+                "order": {
+                    "id": resource_id,
+                    "reference": "HELIANTHA-REF-42",
+                    "id_customer": 15,
+                    "current_state": 3,
+                    "total_paid_tax_incl": 250.0,
+                }
+            }
+        elif resource == "order_states":
+            return {
+                "order_state": {
+                    "id": resource_id,
+                    "name": [{"id": 1, "value": "En cours de préparation"}],
+                    "paid": 0,
+                }
+            }
+        return {}
+
+    mock_ps.get_resource = AsyncMock(side_effect=mock_get_resource)
+    mock_ps.settings = settings
+
+    app.dependency_overrides[get_ps_client] = lambda: mock_ps
+    app.dependency_overrides[get_notification_service] = lambda: service
+
+    try:
+        client = TestClient(app)
+
+        # 1. Test unauthorized if wrong secret
+        resp_unauth = client.post(
+            "/v1/notifications/prestashop-event",
+            json={
+                "type": "ORDER_STATUS",
+                "order_id": 42,
+                "status_key": "order-created-42",
+                "metadata": {"event": "order_created", "source": "actionValidateOrder"},
+            },
+            headers={"X-Heliantha-Bridge-Secret": "wrong_secret"},
+        )
+        assert resp_unauth.status_code == 401
+
+        # 2. Test order creation event with bridge secret
+        secret = settings.mobile_bridge_secret
+        resp_created = client.post(
+            "/v1/notifications/prestashop-event",
+            json={
+                "type": "ORDER_STATUS",
+                "order_id": 42,
+                "status_key": "order-created-42",
+                "metadata": {"event": "order_created", "source": "actionValidateOrder"},
+            },
+            headers={"X-Heliantha-Bridge-Secret": secret},
+        )
+        assert resp_created.status_code == 200
+        data = resp_created.json()
+        assert data["success"] is True
+        assert data["meta"]["created"] is True
+        assert data["data"]["title"] == "Commande enregistrée"
+        assert "HELIANTHA-REF-42" in data["data"]["body"]
+        assert "🎉 Merci pour votre confiance !" in data["data"]["body"]
+        assert data["data"]["order_id"] == 42
+
+        # 3. Test duplicate order creation event is ignored
+        resp_dup = client.post(
+            "/v1/notifications/prestashop-event",
+            json={
+                "type": "ORDER_STATUS",
+                "order_id": 42,
+                "status_key": "order-created-42",
+                "metadata": {"event": "order_created", "source": "actionValidateOrder"},
+            },
+            headers={"X-Heliantha-Bridge-Secret": secret},
+        )
+        assert resp_dup.status_code == 200
+        assert resp_dup.json()["meta"]["created"] is False
+        assert resp_dup.json()["data"] is None
+
+        # 4. Test subsequent status change in Back Office
+        resp_status = client.post(
+            "/v1/notifications/prestashop-event",
+            json={
+                "type": "ORDER_STATUS",
+                "order_id": 42,
+                "status_key": "order-3",
+                "metadata": {"source": "actionOrderStatusPostUpdate", "state_id": 3},
+            },
+            headers={"X-Heliantha-Bridge-Secret": secret},
+        )
+        assert resp_status.status_code == 200
+        data_status = resp_status.json()
+        assert data_status["meta"]["created"] is True
+        assert data_status["data"]["title"] == "En cours de préparation"
+        assert "HELIANTHA-REF-42" in data_status["data"]["body"]
+
+        # 5. Connected customer (id=15) can see both notifications in /v1/notifications
+        token = create_access_token(customer_id=15, email="customer15@heliantha.ma", settings=settings)
+        resp_list = client.get("/v1/notifications", headers={"Authorization": f"Bearer {token}"})
+        assert resp_list.status_code == 200
+        notifs = resp_list.json()["data"]
+        assert len(notifs) == 2
+        titles = [n["title"] for n in notifs]
+        assert "En cours de préparation" in titles
+        assert "Commande enregistrée" in titles
+
+        # 6. Another customer (id=99) sees ZERO notifications (strict customer isolation)
+        token_other = create_access_token(customer_id=99, email="other@heliantha.ma", settings=settings)
+        resp_other = client.get("/v1/notifications", headers={"Authorization": f"Bearer {token_other}"})
+        assert resp_other.status_code == 200
+        assert len(resp_other.json()["data"]) == 0
+    finally:
+        app.dependency_overrides.pop(get_ps_client, None)
+        app.dependency_overrides.pop(get_notification_service, None)

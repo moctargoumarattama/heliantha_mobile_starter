@@ -33,6 +33,8 @@ class PrestaShopOrderEventIn(BaseModel):
     type: NotificationType
     order_id: int
     status_key: str | None = None
+    title: str | None = None
+    message: str | None = None
     metadata: dict[str, Any] = {}
 
 

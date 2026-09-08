@@ -125,11 +125,32 @@ async def prestashop_event(
     state_name, paid = await _order_state(ps, state_id)
     reference = str(order.get("reference") or payload.order_id)
     status_key = payload.status_key or f"{payload.type.value.lower()}-{state_id}"
-    if payload.type == NotificationType.PAYMENT_STATUS:
+
+    is_created = (
+        payload.metadata.get("event") == "order_created"
+        or (payload.status_key and "created" in payload.status_key)
+    )
+
+    if payload.title:
+        title = payload.title
+    elif is_created:
+        title = "Commande enregistrée"
+    elif payload.type == NotificationType.PAYMENT_STATUS:
         title = "Paiement confirme" if paid else state_name
-        body = f"Le paiement de votre commande {reference} est mis a jour."
     else:
         title = state_name
+
+    if payload.message:
+        body = (
+            payload.message
+            .replace("{reference}", reference)
+            .replace("REFERENCE", reference)
+        )
+    elif is_created:
+        body = f"🎉 Merci pour votre confiance ! Votre commande n°{reference} a bien été enregistrée. Notre équipe s'en occupe."
+    elif payload.type == NotificationType.PAYMENT_STATUS:
+        body = f"Le paiement de votre commande {reference} est mis a jour."
+    else:
         body = f"Votre commande {reference} a ete mise a jour."
 
     row = await service.create_notification(
@@ -167,8 +188,13 @@ async def favorite_stock_event(
 
 
 def _valid_webhook_secret(settings: Settings, provided: str) -> bool:
-    expected = settings.notification_webhook_secret or settings.mobile_bridge_secret
-    return bool(expected and provided and hmac.compare_digest(provided, expected))
+    if not provided:
+        return False
+    valid_secrets = [
+        s for s in (settings.notification_webhook_secret, settings.mobile_bridge_secret)
+        if s
+    ]
+    return any(hmac.compare_digest(provided, secret) for secret in valid_secrets)
 
 
 async def _order_state(ps: PrestaShopClient, state_id: int) -> tuple[str, bool]:
