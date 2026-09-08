@@ -1,10 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../shared/models/order.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
@@ -25,19 +26,21 @@ class OrdersScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: orders.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, __) => ResponsivePagePadding(
-            child: AppStatusPanel(
+          loading: () => const _OrdersSkeleton(),
+          error: (error, __) {
+            final friendly = friendlyLoadError(error);
+            return ResponsivePagePadding(
+                child: AppStatusPanel(
               icon: Icons.cloud_off_rounded,
-              title: 'Commandes indisponibles',
-              message: 'Veuillez réessayer dans quelques instants.',
+              title: friendly.title,
+              message: friendly.message,
               action: OutlinedButton.icon(
                 onPressed: () => ref.invalidate(ordersProvider),
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Réessayer'),
               ),
-            ),
-          ),
+            ));
+          },
           data: (items) {
             if (items.isEmpty) {
               return const ResponsivePagePadding(
@@ -282,14 +285,14 @@ class OrderDetailScreen extends ConsumerWidget {
       body: SafeArea(
         child: orders.when(
           loading: () => initialOrder == null
-              ? const Center(child: CircularProgressIndicator())
+              ? const _OrderDetailSkeleton()
               : _OrderDetailBody(order: initialOrder!),
-          error: (_, __) => initialOrder == null
+          error: (error, __) => initialOrder == null
               ? ResponsivePagePadding(
                   child: AppStatusPanel(
                     icon: Icons.cloud_off_rounded,
                     title: 'Commande indisponible',
-                    message: 'Veuillez réessayer dans quelques instants.',
+                    message: friendlyLoadError(error).message,
                     action: OutlinedButton.icon(
                       onPressed: () => ref.invalidate(ordersProvider),
                       icon: const Icon(Icons.refresh_rounded),
@@ -439,6 +442,137 @@ class _DetailRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OrdersSkeleton extends StatelessWidget {
+  const _OrdersSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        ResponsivePagePadding(
+          bottom: 96,
+          child: Column(
+            children: [
+              const _SkeletonSurface(height: 154),
+              const SizedBox(height: 16),
+              for (var i = 0; i < 4; i++) ...[
+                const _OrderCardSkeleton(),
+                if (i != 3) const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrderDetailSkeleton extends StatelessWidget {
+  const _OrderDetailSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        ResponsivePagePadding(
+          bottom: 96,
+          child: Column(
+            children: const [
+              _SkeletonSurface(height: 168),
+              SizedBox(height: 16),
+              _SkeletonSurface(height: 188),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrderCardSkeleton extends StatelessWidget {
+  const _OrderCardSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      radius: AppRadii.lg,
+      shadow: true,
+      child: Row(
+        children: [
+          const _SkeletonBox(width: 44, height: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                _SkeletonBox(height: 16),
+                SizedBox(height: 8),
+                _SkeletonBox(width: 180, height: 13),
+                SizedBox(height: 10),
+                _SkeletonBox(width: 120, height: 30),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          const _SkeletonBox(width: 78, height: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonSurface extends StatelessWidget {
+  const _SkeletonSurface({required this.height});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      radius: AppRadii.lg,
+      child: SizedBox(
+        height: height,
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SkeletonBox(width: 130, height: 18),
+            SizedBox(height: 14),
+            _SkeletonBox(height: 16),
+            SizedBox(height: 8),
+            _SkeletonBox(width: 220, height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    this.width,
+    required this.height,
+  });
+
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
     );
   }
 }

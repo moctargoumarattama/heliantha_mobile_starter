@@ -26,6 +26,9 @@ def test_public_slider_parser_detects_real_slider_images():
 
 
 class FakeCatalog:
+    def __init__(self):
+        self.ps = self
+
     async def products(self, *, page, page_size, language_id):
         return [
             ProductOut(
@@ -49,6 +52,9 @@ class FakeCatalog:
                 image_url="/v1/products/340/image?image_id=2",
             ),
         ], {"returned": 2}
+
+    async def get_binary(self, path):
+        return b"image", "image/jpeg", {}
 
 
 async def test_product_fallback_builds_product_slides():

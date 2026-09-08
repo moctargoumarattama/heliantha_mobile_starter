@@ -8,6 +8,7 @@ import '../../../shared/models/category.dart';
 import '../../../shared/models/product.dart';
 import '../../../shared/models/store_context.dart';
 import '../../../shared/theme/app_colors.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
@@ -197,9 +198,9 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
           );
         }
       }
-    } catch (e) {
+    } catch (error) {
       if (mounted && requestVersion == _requestVersion) {
-        setState(() => _error = e);
+        setState(() => _error = error);
       }
     } finally {
       if (mounted && requestVersion == _requestVersion) {
@@ -238,7 +239,10 @@ class _CatalogScreenState extends ConsumerState<CatalogScreen> {
       if (!mounted) {
         return;
       }
-      AppFeedback.error(context, 'Impossible de charger plus de produits.');
+      AppFeedback.error(
+        context,
+        'Nous n’avons pas pu charger plus de produits pour le moment.',
+      );
     } finally {
       if (mounted) {
         setState(() => _loadingMore = false);
@@ -744,11 +748,12 @@ class _CatalogContent extends StatelessWidget {
     }
 
     if (error != null) {
+      final friendly = friendlyLoadError(error);
       return SingleChildScrollView(
         child: AppStatusPanel(
           icon: Icons.cloud_off_rounded,
-          title: 'Catalogue indisponible',
-          message: 'Veuillez réessayer dans quelques instants.',
+          title: friendly.title,
+          message: friendly.message,
           action: OutlinedButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
@@ -763,7 +768,8 @@ class _CatalogContent extends StatelessWidget {
         child: AppStatusPanel(
           icon: Icons.manage_search_rounded,
           title: 'Aucun résultat',
-          message: 'Essayez une autre recherche ou revenez plus tard.',
+          message:
+              'Aucun produit ne correspond à votre recherche. Essayez avec un autre mot-clé.',
           action: OutlinedButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),

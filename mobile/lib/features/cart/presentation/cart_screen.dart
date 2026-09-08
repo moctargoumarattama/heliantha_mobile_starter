@@ -37,11 +37,11 @@ class CartScreen extends ConsumerWidget {
                   icon: Icons.shopping_bag_outlined,
                   title: 'Votre panier est vide',
                   message:
-                      'Ajoutez des produits depuis le catalogue Heliantha.',
+                      'Découvrez nos produits et ajoutez ceux qui vous intéressent.',
                   action: FilledButton.icon(
                     onPressed: () => context.go('/catalog'),
                     icon: const Icon(Icons.storefront_rounded),
-                    label: const Text('Ouvrir le catalogue'),
+                    label: const Text('Découvrir le catalogue'),
                   ),
                 ),
               )
@@ -50,6 +50,7 @@ class CartScreen extends ConsumerWidget {
                   final wide = constraints.maxWidth >= 820;
                   if (wide) {
                     return ResponsivePagePadding(
+                      bottom: 104,
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -71,26 +72,28 @@ class CartScreen extends ConsumerWidget {
                     );
                   }
 
-                  return ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      ResponsivePagePadding(
-                        bottom: 96,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _CartItemsColumn(items: items),
-                            const SizedBox(height: 14),
-                            _OrderSummary(
-                              itemCount: items.length,
-                              total: total,
-                              currency: currency,
-                              isAuthenticated: user != null,
-                            ),
-                          ],
+                  return Scrollbar(
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      children: [
+                        ResponsivePagePadding(
+                          bottom: 104,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _CartItemsColumn(items: items),
+                              const SizedBox(height: 14),
+                              _OrderSummary(
+                                itemCount: items.length,
+                                total: total,
+                                currency: currency,
+                                isAuthenticated: user != null,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   );
                 },
               ),
@@ -107,7 +110,7 @@ class _CartList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.only(bottom: 104),
       itemCount: items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) => _CartItemCard(item: items[index]),
@@ -259,8 +262,21 @@ class _CartProductImage extends StatelessWidget {
                     height: 60,
                     fit: BoxFit.contain,
                     headers: const {'Accept': 'image/*'},
+                    frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+                      if (wasSynchronouslyLoaded) {
+                        return child;
+                      }
+                      return AnimatedOpacity(
+                        opacity: frame == null ? 0 : 1,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        child: child,
+                      );
+                    },
                     loadingBuilder: (context, child, progress) =>
-                        progress == null ? child : const _CartImagePlaceholder(),
+                        progress == null
+                            ? child
+                            : const _CartImagePlaceholder(),
                     errorBuilder: (_, __, ___) => const _CartImagePlaceholder(),
                   )
                 : CachedNetworkImage(
@@ -269,6 +285,8 @@ class _CartProductImage extends StatelessWidget {
                     width: 60,
                     height: 60,
                     fit: BoxFit.contain,
+                    fadeInDuration: const Duration(milliseconds: 180),
+                    fadeOutDuration: const Duration(milliseconds: 100),
                     placeholder: (_, __) => const _CartImagePlaceholder(),
                     errorWidget: (_, __, ___) => const _CartImagePlaceholder(),
                   ),
@@ -292,7 +310,6 @@ class _CartImagePlaceholder extends StatelessWidget {
     );
   }
 }
-
 
 class _QuantityStepper extends ConsumerWidget {
   const _QuantityStepper({required this.item});

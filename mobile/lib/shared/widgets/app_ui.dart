@@ -206,7 +206,7 @@ class ResponsivePagePadding extends StatelessWidget {
   }
 }
 
-class AppSurface extends StatelessWidget {
+class AppSurface extends StatefulWidget {
   const AppSurface({
     super.key,
     required this.child,
@@ -227,37 +227,80 @@ class AppSurface extends StatelessWidget {
   final bool shadow;
 
   @override
+  State<AppSurface> createState() => _AppSurfaceState();
+}
+
+class _AppSurfaceState extends State<AppSurface> {
+  bool _hovered = false;
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
-    final borderRadius = BorderRadius.circular(radius);
+    final interactive = widget.onTap != null;
+    final borderRadius = BorderRadius.circular(widget.radius);
     final decoration = BoxDecoration(
-      color: backgroundColor,
-      gradient: _surfaceGradient(backgroundColor),
+      color: widget.backgroundColor,
+      gradient: _surfaceGradient(widget.backgroundColor),
       borderRadius: borderRadius,
-      border: Border.all(color: borderColor),
-      boxShadow: shadow ? AppShadows.soft : null,
+      border: Border.all(
+        color: interactive && _hovered ? AppColors.blue : widget.borderColor,
+      ),
+      boxShadow: widget.shadow || (interactive && _hovered)
+          ? [
+              BoxShadow(
+                color: AppColors.navy.withValues(
+                  alpha: interactive && _hovered ? 0.10 : 0.07,
+                ),
+                blurRadius: interactive && _hovered ? 22 : 18,
+                offset: Offset(0, interactive && _hovered ? 10 : 9),
+              ),
+            ]
+          : null,
     );
 
-    if (onTap == null) {
-      return Container(
+    if (!interactive) {
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
         width: double.infinity,
-        padding: padding,
+        padding: widget.padding,
         decoration: decoration,
-        child: child,
+        child: widget.child,
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      borderRadius: borderRadius,
-      child: InkWell(
-        borderRadius: borderRadius,
-        onTap: onTap,
-        child: Ink(
-          width: double.infinity,
-          decoration: decoration,
-          child: Padding(
-            padding: padding,
-            child: child,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 110),
+        curve: Curves.easeOutCubic,
+        scale: _pressed ? 0.98 : (_hovered ? 1.006 : 1),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: borderRadius,
+          child: InkWell(
+            borderRadius: borderRadius,
+            onTap: widget.onTap,
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTapUp: (_) => setState(() => _pressed = false),
+            splashColor: AppColors.blue.withValues(alpha: 0.07),
+            highlightColor: AppColors.blue.withValues(alpha: 0.035),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOutCubic,
+              width: double.infinity,
+              decoration: decoration,
+              child: Padding(
+                padding: widget.padding,
+                child: widget.child,
+              ),
+            ),
           ),
         ),
       ),

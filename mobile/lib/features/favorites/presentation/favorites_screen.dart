@@ -30,31 +30,34 @@ class FavoritesScreen extends ConsumerWidget {
             ? ResponsivePagePadding(
                 child: AppStatusPanel(
                   icon: Icons.favorite_border_rounded,
-                  title: 'Aucun favori',
-                  message: 'Ajoutez vos produits solaires préférés ici.',
+                  title: 'Aucun favori pour le moment',
+                  message:
+                      'Ajoutez vos produits préférés pour les retrouver facilement ici.',
                   action: FilledButton.icon(
                     onPressed: () => context.go('/catalog'),
                     icon: const Icon(Icons.storefront_rounded),
-                    label: const Text('Ouvrir le catalogue'),
+                    label: const Text('Voir les produits'),
                   ),
                 ),
               )
-            : ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  ResponsivePagePadding(
-                    bottom: 96,
-                    child: Column(
-                      children: [
-                        for (var index = 0; index < ids.length; index++) ...[
-                          _FavoriteProductCard(productId: ids[index]),
-                          if (index != ids.length - 1)
-                            const SizedBox(height: 12),
+            : Scrollbar(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    ResponsivePagePadding(
+                      bottom: 104,
+                      child: Column(
+                        children: [
+                          for (var index = 0; index < ids.length; index++) ...[
+                            _FavoriteProductCard(productId: ids[index]),
+                            if (index != ids.length - 1)
+                              const SizedBox(height: 12),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
       ),
     );
@@ -71,12 +74,7 @@ class _FavoriteProductCard extends ConsumerWidget {
     final product = ref.watch(productProvider(productId));
 
     return product.when(
-      loading: () => const _FavoriteShell(
-        child: SizedBox(
-          height: 74,
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      ),
+      loading: () => const _FavoriteShell(child: _FavoriteSkeletonTile()),
       error: (_, __) => _FavoriteShell(
         child: Padding(
           padding: const EdgeInsets.all(12),
@@ -86,7 +84,7 @@ class _FavoriteProductCard extends ConsumerWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Produit #$productId indisponible',
+                  'Ce produit n’est plus disponible pour le moment.',
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
@@ -218,12 +216,86 @@ class _FavoriteImage extends StatelessWidget {
               child: CachedNetworkImage(
                 imageUrl: absoluteApiUrl(imageUrl),
                 fit: BoxFit.contain,
+                fadeInDuration: const Duration(milliseconds: 180),
+                fadeOutDuration: const Duration(milliseconds: 100),
+                placeholder: (_, __) => const _FavoriteImagePlaceholder(),
                 errorWidget: (_, __, ___) => const Icon(
                   Icons.solar_power_rounded,
                   color: AppColors.blue,
                 ),
               ),
             ),
+    );
+  }
+}
+
+class _FavoriteSkeletonTile extends StatelessWidget {
+  const _FavoriteSkeletonTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.all(12),
+      child: Row(
+        children: [
+          _SkeletonBox(width: 72, height: 72),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SkeletonBox(height: 16),
+                SizedBox(height: 8),
+                _SkeletonBox(width: 180, height: 16),
+                SizedBox(height: 10),
+                _SkeletonBox(width: 110, height: 20),
+              ],
+            ),
+          ),
+          SizedBox(width: 12),
+          _SkeletonBox(width: 44, height: 44),
+        ],
+      ),
+    );
+  }
+}
+
+class _FavoriteImagePlaceholder extends StatelessWidget {
+  const _FavoriteImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: AppColors.surfaceMuted,
+      child: Center(
+        child: Icon(
+          Icons.solar_power_rounded,
+          color: AppColors.blue,
+          size: 28,
+        ),
+      ),
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    this.width,
+    required this.height,
+  });
+
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
     );
   }
 }

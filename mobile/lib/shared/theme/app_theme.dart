@@ -132,7 +132,10 @@ class AppTheme {
           elevation: 0,
           backgroundColor: AppColors.navy,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: AppColors.border,
+          disabledForegroundColor: AppColors.muted,
           minimumSize: const Size(48, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.sm),
           ),
@@ -145,7 +148,9 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(48, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
           foregroundColor: AppColors.navy,
+          disabledForegroundColor: AppColors.muted,
           side: const BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppRadii.sm),
@@ -159,6 +164,9 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.blue,
+          disabledForegroundColor: AppColors.muted,
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           textStyle: const TextStyle(
             fontWeight: FontWeight.w900,
             letterSpacing: 0,

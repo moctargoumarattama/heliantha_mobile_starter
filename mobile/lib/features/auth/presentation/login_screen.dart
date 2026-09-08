@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
+import '../../notifications/services/fcm_service.dart';
 import '../providers/auth_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -55,12 +57,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             password: password,
           );
       ref.invalidate(currentUserProvider);
+      await ref.read(fcmServiceProvider).registerForCurrentUser();
       if (mounted) {
         context.replace(_safeRedirect(widget.redirectLocation));
       }
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Connexion impossible pour ce compte.');
+        setState(() => _error = friendlyLoginMessage());
       }
     } finally {
       if (mounted) {

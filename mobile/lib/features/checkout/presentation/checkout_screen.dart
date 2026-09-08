@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,15 +5,16 @@ import 'package:go_router/go_router.dart';
 import '../../../shared/models/address.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../addresses/providers/addresses_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../cart/providers/cart_provider.dart';
+import '../../notifications/services/fcm_service.dart';
 import '../domain/checkout_models.dart';
 import '../providers/checkout_provider.dart';
-
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -77,7 +77,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     super.dispose();
   }
 
-  void _loadPreview({int? carrierId, int? addressId, bool keepCarrier = false}) {
+  void _loadPreview(
+      {int? carrierId, int? addressId, bool keepCarrier = false}) {
     final lines = CheckoutLineRequest.fromCart(ref.read(cartProvider));
     setState(() {
       if (!keepCarrier) {
@@ -152,9 +153,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
           );
       ref.invalidate(currentUserProvider);
       ref.invalidate(addressesProvider);
+      await ref.read(fcmServiceProvider).registerForCurrentUser();
       setState(() => _message = 'Connexion réussie.');
     } catch (_) {
-      setState(() => _message = 'Connexion impossible pour ce compte.');
+      setState(() => _message = friendlyLoginMessage());
     } finally {
       if (mounted) {
         setState(() => _loginLoading = false);
@@ -192,8 +194,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
     if (isConnected) {
       if (userAddress == null) {
-        setState(() =>
-            _message = 'Veuillez ajouter une adresse de livraison pour continuer.');
+        setState(() => _message =
+            'Veuillez ajouter une adresse de livraison pour continuer.');
         return;
       }
     } else {
@@ -241,18 +243,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         _confirming = false;
       });
       _handleSuccessfulOrder(result, preview);
-    } on DioException catch (error) {
-      final detail = error.response?.data is Map
-          ? (error.response?.data['detail']?.toString())
-          : null;
+    } catch (error) {
       setState(
-        () => _message = detail?.isNotEmpty == true
-            ? detail
-            : 'Impossible de confirmer cette commande.',
-      );
-    } catch (_) {
-      setState(
-        () => _message = 'Impossible de confirmer cette commande.',
+        () => _message = friendlyCheckoutMessage(error),
       );
     } finally {
       if (mounted && !_orderConfirmed) {
@@ -342,12 +335,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
             ? ResponsivePagePadding(
                 child: AppStatusPanel(
                   icon: Icons.shopping_bag_outlined,
-                  title: 'Panier vide',
-                  message: 'Ajoutez des produits avant de commander.',
+                  title: 'Votre panier est vide',
+                  message:
+                      'Découvrez nos produits et ajoutez ceux qui vous intéressent.',
                   action: FilledButton.icon(
                     onPressed: () => context.go('/catalog'),
                     icon: const Icon(Icons.storefront_rounded),
-                    label: const Text('Ouvrir le catalogue'),
+                    label: const Text('Découvrir le catalogue'),
                   ),
                 ),
               )
@@ -355,17 +349,18 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 future: _previewFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const _CheckoutPreviewSkeleton();
                   }
                   if (snapshot.hasError || !snapshot.hasData) {
+                    final friendly = friendlyLoadError(snapshot.error);
                     return ResponsivePagePadding(
                       child: AppStatusPanel(
                         icon: Icons.cloud_off_rounded,
-                        title: 'Checkout indisponible',
-                        message:
-                            'Impossible de préparer le checkout PrestaShop.',
+                        title: friendly.title,
+                        message: friendly.message,
                         action: OutlinedButton.icon(
-                          onPressed: () => _loadPreview(addressId: _activeAddressId),
+                          onPressed: () =>
+                              _loadPreview(addressId: _activeAddressId),
                           icon: const Icon(Icons.refresh_rounded),
                           label: const Text('Réessayer'),
                         ),
@@ -694,7 +689,8 @@ class _CheckoutOptions extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (preview.carriers.isEmpty)
-            const _MutedLine('Aucun transporteur retourné par PrestaShop')
+            const _MutedLine(
+                'Aucun mode de livraison disponible pour le moment.')
           else
             for (final carrier in preview.carriers)
               _ChoiceLine(
@@ -708,7 +704,8 @@ class _CheckoutOptions extends StatelessWidget {
               ),
           const Divider(height: 24),
           if (preview.payments.isEmpty)
-            const _MutedLine('Aucun paiement retourné par PrestaShop')
+            const _MutedLine(
+                'Aucun moyen de paiement disponible pour le moment.')
           else
             for (final payment in preview.payments)
               _ChoiceLine(
@@ -1275,7 +1272,9 @@ class _UsedAddressPanel extends StatelessWidget {
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      (address!.phoneMobile?.trim().isNotEmpty ==
+                                      (address!.phoneMobile
+                                                      ?.trim()
+                                                      .isNotEmpty ==
                                                   true
                                               ? address!.phoneMobile
                                               : address!.phone) ??
@@ -1350,6 +1349,101 @@ class _UsedAddressPanel extends StatelessWidget {
                     ),
                   ],
                 ),
+    );
+  }
+}
+
+class _CheckoutPreviewSkeleton extends StatelessWidget {
+  const _CheckoutPreviewSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        ResponsivePagePadding(
+          bottom: 96,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _Panel(
+                title: 'Adresse de livraison',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _SkeletonBox(height: 16),
+                    SizedBox(height: 8),
+                    _SkeletonBox(width: 240, height: 16),
+                    SizedBox(height: 12),
+                    _SkeletonBox(width: 180, height: 42),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _Panel(
+                title: 'Livraison',
+                child: Column(
+                  children: [
+                    _SkeletonBox(height: 54),
+                    SizedBox(height: 8),
+                    _SkeletonBox(height: 54),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const _Panel(
+                title: 'Paiement',
+                child: Column(
+                  children: [
+                    _SkeletonBox(height: 54),
+                    SizedBox(height: 8),
+                    _SkeletonBox(height: 54),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              AppSurface(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                radius: AppRadii.lg,
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _SkeletonBox(width: 120, height: 18),
+                    SizedBox(height: 12),
+                    _SkeletonBox(height: 16),
+                    SizedBox(height: 8),
+                    _SkeletonBox(height: 16),
+                    SizedBox(height: 16),
+                    _SkeletonBox(height: 48),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    this.width,
+    required this.height,
+  });
+
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
     );
   }
 }

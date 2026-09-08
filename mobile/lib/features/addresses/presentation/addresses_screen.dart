@@ -1,10 +1,10 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/models/address.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
@@ -30,26 +30,29 @@ class AddressesScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: addresses.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, __) => ResponsivePagePadding(
-            child: AppStatusPanel(
+          loading: () => const _AddressesSkeleton(),
+          error: (error, __) {
+            final friendly = friendlyLoadError(error);
+            return ResponsivePagePadding(
+                child: AppStatusPanel(
               icon: Icons.cloud_off_rounded,
-              title: 'Adresses indisponibles',
-              message: 'Impossible de charger vos adresses pour le moment.',
+              title: friendly.title,
+              message: friendly.message,
               action: OutlinedButton.icon(
                 onPressed: () => ref.invalidate(addressesProvider),
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Réessayer'),
               ),
-            ),
-          ),
+            ));
+          },
           data: (items) {
             if (items.isEmpty) {
               return ResponsivePagePadding(
                 child: AppStatusPanel(
                   icon: Icons.location_on_outlined,
                   title: 'Aucune adresse enregistrée',
-                  message: 'Vos informations de livraison apparaîtront ici.',
+                  message:
+                      'Ajoutez une adresse pour faciliter vos prochaines commandes.',
                   action: FilledButton.icon(
                     onPressed: () => _openAddressForm(context, ref),
                     icon: const Icon(Icons.add_location_alt_rounded),
@@ -59,39 +62,41 @@ class AddressesScreen extends ConsumerWidget {
               );
             }
 
-            return ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                ResponsivePagePadding(
-                  bottom: 96,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.icon(
-                          onPressed: () => _openAddressForm(context, ref),
-                          icon: const Icon(Icons.add_location_alt_rounded),
-                          label: const Text('Ajouter une adresse'),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      for (var index = 0; index < items.length; index++) ...[
-                        _AddressCard(
-                          address: items[index],
-                          onEdit: () => _openAddressForm(
-                            context,
-                            ref,
-                            address: items[index],
+            return Scrollbar(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  ResponsivePagePadding(
+                    bottom: 104,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.icon(
+                            onPressed: () => _openAddressForm(context, ref),
+                            icon: const Icon(Icons.add_location_alt_rounded),
+                            label: const Text('Ajouter une adresse'),
                           ),
                         ),
-                        if (index != items.length - 1)
-                          const SizedBox(height: 12),
+                        const SizedBox(height: 12),
+                        for (var index = 0; index < items.length; index++) ...[
+                          _AddressCard(
+                            address: items[index],
+                            onEdit: () => _openAddressForm(
+                              context,
+                              ref,
+                              address: items[index],
+                            ),
+                          ),
+                          if (index != items.length - 1)
+                            const SizedBox(height: 12),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -235,6 +240,62 @@ class _AddressCard extends StatelessWidget {
   }
 }
 
+class _AddressesSkeleton extends StatelessWidget {
+  const _AddressesSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scrollbar(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          ResponsivePagePadding(
+            bottom: 104,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Align(
+                  alignment: Alignment.centerRight,
+                  child: _SkeletonBox(width: 170, height: 46),
+                ),
+                const SizedBox(height: 12),
+                for (var i = 0; i < 3; i++) ...[
+                  const AppSurface(
+                    padding: EdgeInsets.all(AppSpacing.lg),
+                    radius: AppRadii.lg,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SkeletonBox(width: 44, height: 44),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _SkeletonBox(width: 150, height: 16),
+                              SizedBox(height: 8),
+                              _SkeletonBox(height: 14),
+                              SizedBox(height: 7),
+                              _SkeletonBox(width: 220, height: 14),
+                              SizedBox(height: 10),
+                              _SkeletonBox(width: 130, height: 30),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (i != 2) const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AddressFormSheet extends ConsumerStatefulWidget {
   const _AddressFormSheet({this.address});
 
@@ -315,42 +376,13 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      final msg = _extractErrorMessage(e);
+      final msg = friendlyAddressSaveMessage(e);
       setState(() => _error = msg);
       AppFeedback.error(context, msg);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
-
-  /// Extrait un message d'erreur lisible depuis une exception.
-  /// Affiche le `detail` retourné par FastAPI si disponible.
-  /// Ne jamais exposer de stack trace à l'utilisateur.
-  String _extractErrorMessage(Object e) {
-    if (e is DioException) {
-      if (e.response?.statusCode == 409) {
-        return 'Une adresse existe déjà. Modifiez votre adresse actuelle.';
-      }
-      final data = e.response?.data;
-      if (data is Map) {
-        final detail = data['detail'];
-        if (detail is String && detail.isNotEmpty) return detail;
-        if (detail is List && detail.isNotEmpty) {
-          // ValidationError Pydantic — prendre le premier message
-          final first = detail.first;
-          if (first is Map) {
-            final msg = first['msg'] as String? ?? '';
-            if (msg.isNotEmpty) return msg;
-          }
-        }
-      }
-      if (e.response?.statusCode == 422) {
-        return 'Un champ contient une valeur non acceptée.';
-      }
-    }
-    return 'Impossible d’enregistrer cette adresse. Réessayez.';
-  }
-
 
   @override
   Widget build(BuildContext context) {
@@ -582,6 +614,28 @@ class _OptionalField extends StatelessWidget {
       controller: controller,
       keyboardType: keyboardType,
       decoration: InputDecoration(labelText: label),
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    this.width,
+    required this.height,
+  });
+
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
     );
   }
 }

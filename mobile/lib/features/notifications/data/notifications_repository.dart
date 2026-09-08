@@ -32,4 +32,21 @@ class NotificationsRepository {
   Future<void> markRead(int id) async {
     await _api.dio.post('/v1/notifications/$id/read');
   }
+
+  Future<void> registerDevice(String token) async {
+    await _api.dio.post(
+      '/v1/notifications/device',
+      data: {
+        'token': token,
+        'platform': 'android',
+      },
+    );
+  }
+
+  Future<void> unregisterDevice(String token) async {
+    await _api.dio.delete(
+      '/v1/notifications/device',
+      queryParameters: {'token': token},
+    );
+  }
 }

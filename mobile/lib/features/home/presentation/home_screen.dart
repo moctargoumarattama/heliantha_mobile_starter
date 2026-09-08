@@ -13,6 +13,7 @@ import '../../../shared/models/home_slide.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
@@ -96,7 +97,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(height: 16),
                       slides.when(
                         loading: () => const _HomeSliderLoading(),
-                        error: (_, __) => const _HomeSliderLoading(),
+                        error: (_, __) => const _HomeSliderFallback(),
                         data: (items) => HomeSlider(
                           slides: items,
                           onOpenProduct: (productId) {
@@ -114,16 +115,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(height: 12),
                       categories.when(
                         loading: () => const _CategoryRailSkeleton(),
-                        error: (_, __) => AppStatusPanel(
-                          icon: Icons.wifi_off_rounded,
-                          title: 'Catégories indisponibles',
-                          message: 'Veuillez réessayer dans quelques instants.',
-                          action: OutlinedButton.icon(
-                            onPressed: () => ref.invalidate(categoriesProvider),
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Réessayer'),
-                          ),
-                        ),
+                        error: (error, __) {
+                          final friendly = friendlyLoadError(error);
+                          return AppStatusPanel(
+                            icon: Icons.wifi_off_rounded,
+                            title: friendly.title,
+                            message: friendly.message,
+                            action: OutlinedButton.icon(
+                              onPressed: () =>
+                                  ref.invalidate(categoriesProvider),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Réessayer'),
+                            ),
+                          );
+                        },
                         data: (items) => _CategoryRail(
                           items: items,
                           onTap: (categoryId) {
@@ -146,23 +151,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           shrinkWrap: true,
                           physics: NeverScrollableScrollPhysics(),
                         ),
-                        error: (_, __) => AppStatusPanel(
-                          icon: Icons.cloud_off_rounded,
-                          title: 'Produits indisponibles',
-                          message: 'Veuillez réessayer dans quelques instants.',
-                          action: OutlinedButton.icon(
-                            onPressed: () => ref.invalidate(productsProvider),
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('Réessayer'),
-                          ),
-                        ),
+                        error: (error, __) {
+                          final friendly = friendlyLoadError(error);
+                          return AppStatusPanel(
+                            icon: Icons.cloud_off_rounded,
+                            title: friendly.title,
+                            message: friendly.message,
+                            action: OutlinedButton.icon(
+                              onPressed: () => ref.invalidate(productsProvider),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Réessayer'),
+                            ),
+                          );
+                        },
                         data: (items) {
                           if (items.isEmpty) {
                             return AppStatusPanel(
                               icon: Icons.inventory_2_outlined,
                               title: 'Aucun produit disponible',
                               message:
-                                  'Notre catalogue sera bientôt disponible.',
+                                  'Notre catalogue sera bientôt mis à jour.',
                               action: OutlinedButton.icon(
                                 onPressed: () =>
                                     ref.invalidate(productsProvider),
@@ -516,6 +524,16 @@ class _HomeSliderState extends State<HomeSlider> {
   late final PageController _controller;
   Timer? _timer;
   int _index = 0;
+  final Set<String> _failedSlideIds = {};
+
+  List<HomeSlide> get _visibleSlides => widget.slides
+      .where(
+        (slide) =>
+            slide.imageUrl.trim().isNotEmpty &&
+            !_failedSlideIds.contains(slide.id),
+      )
+      .take(8)
+      .toList(growable: false);
 
   @override
   void initState() {
@@ -529,6 +547,7 @@ class _HomeSliderState extends State<HomeSlider> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.slides.length != widget.slides.length) {
       _index = 0;
+      _failedSlideIds.clear();
       _timer?.cancel();
       _startTimer();
     }
@@ -542,14 +561,18 @@ class _HomeSliderState extends State<HomeSlider> {
   }
 
   void _startTimer() {
-    if (widget.slides.length < 2) {
+    if (_visibleSlides.length < 2) {
       return;
     }
     _timer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted || !_controller.hasClients) {
         return;
       }
-      final next = (_index + 1) % widget.slides.length;
+      final slides = _visibleSlides;
+      if (slides.length < 2) {
+        return;
+      }
+      final next = (_index + 1) % slides.length;
       _controller.animateToPage(
         next,
         duration: const Duration(milliseconds: 420),
@@ -560,8 +583,9 @@ class _HomeSliderState extends State<HomeSlider> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.slides.isEmpty) {
-      return const _HomeSliderLoading();
+    final slides = _visibleSlides;
+    if (slides.isEmpty) {
+      return const _HomeSliderFallback();
     }
 
     return LayoutBuilder(
@@ -573,14 +597,15 @@ class _HomeSliderState extends State<HomeSlider> {
             children: [
               PageView.builder(
                 controller: _controller,
-                itemCount: widget.slides.length,
+                itemCount: slides.length,
                 onPageChanged: (value) => setState(() => _index = value),
                 itemBuilder: (context, index) {
-                  final slide = widget.slides[index];
+                  final slide = slides[index];
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 14),
                     child: _HomeSlideCard(
                       slide: slide,
+                      onImageError: () => _removeSlide(slide.id),
                       onTap: slide.isProduct
                           ? () => widget.onOpenProduct(slide.productId!)
                           : null,
@@ -593,8 +618,8 @@ class _HomeSliderState extends State<HomeSlider> {
                 right: 0,
                 bottom: 0,
                 child: _SliderDots(
-                  count: widget.slides.length,
-                  index: _index,
+                  count: slides.length,
+                  index: _index.clamp(0, slides.length - 1).toInt(),
                 ),
               ),
             ],
@@ -603,16 +628,38 @@ class _HomeSliderState extends State<HomeSlider> {
       },
     );
   }
+
+  void _removeSlide(String id) {
+    if (_failedSlideIds.contains(id)) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _failedSlideIds.contains(id)) {
+        return;
+      }
+      setState(() {
+        _failedSlideIds.add(id);
+        final slides = _visibleSlides;
+        if (slides.isEmpty) {
+          _index = 0;
+        } else if (_index >= slides.length) {
+          _index = slides.length - 1;
+        }
+      });
+    });
+  }
 }
 
 class _HomeSlideCard extends StatelessWidget {
   const _HomeSlideCard({
     required this.slide,
     required this.onTap,
+    required this.onImageError,
   });
 
   final HomeSlide slide;
   final VoidCallback? onTap;
+  final VoidCallback onImageError;
 
   @override
   Widget build(BuildContext context) {
@@ -645,8 +692,9 @@ class _HomeSlideCard extends StatelessWidget {
                     ? _SlideImage(
                         imageUrl: slide.imageUrl,
                         fit: BoxFit.contain,
+                        onError: onImageError,
                       )
-                    : _ProductSlide(slide: slide),
+                    : _ProductSlide(slide: slide, onImageError: onImageError),
                 const _StaticSheen(),
               ],
             ),
@@ -658,9 +706,13 @@ class _HomeSlideCard extends StatelessWidget {
 }
 
 class _ProductSlide extends StatelessWidget {
-  const _ProductSlide({required this.slide});
+  const _ProductSlide({
+    required this.slide,
+    required this.onImageError,
+  });
 
   final HomeSlide slide;
+  final VoidCallback onImageError;
 
   @override
   Widget build(BuildContext context) {
@@ -678,6 +730,7 @@ class _ProductSlide extends StatelessWidget {
                   imageUrl: slide.imageUrl,
                   fit: BoxFit.cover,
                   alignment: Alignment.center,
+                  onError: onImageError,
                 ),
               ),
             ),
@@ -752,17 +805,20 @@ class _SlideImage extends StatelessWidget {
     required this.imageUrl,
     required this.fit,
     this.alignment = Alignment.center,
+    this.onError,
   });
 
   final String imageUrl;
   final BoxFit fit;
   final Alignment alignment;
+  final VoidCallback? onError;
 
   @override
   Widget build(BuildContext context) {
     final url = absoluteApiUrl(imageUrl);
     if (url.isEmpty) {
-      return const _SlideImageFallback();
+      onError?.call();
+      return const SizedBox.shrink();
     }
 
     if (kIsWeb) {
@@ -779,7 +835,10 @@ class _SlideImage extends StatelessWidget {
           }
           return const _SlideImageLoading();
         },
-        errorBuilder: (_, __, ___) => const _SlideImageFallback(),
+        errorBuilder: (_, __, ___) {
+          onError?.call();
+          return const SizedBox.shrink();
+        },
       );
     }
 
@@ -791,7 +850,29 @@ class _SlideImage extends StatelessWidget {
       width: double.infinity,
       height: double.infinity,
       placeholder: (_, __) => const _SlideImageLoading(),
-      errorWidget: (_, __, ___) => const _SlideImageFallback(),
+      errorWidget: (_, __, ___) {
+        onError?.call();
+        return const SizedBox.shrink();
+      },
+    );
+  }
+}
+
+class _HomeSliderFallback extends StatelessWidget {
+  const _HomeSliderFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return AppStatusPanel(
+      icon: Icons.solar_power_rounded,
+      title: 'Découvrez nos solutions solaires',
+      message:
+          'Parcourez notre catalogue et trouvez les équipements adaptés à votre projet.',
+      action: FilledButton.icon(
+        onPressed: () => context.go('/catalog'),
+        icon: const Icon(Icons.storefront_rounded),
+        label: const Text('Voir le catalogue'),
+      ),
     );
   }
 }
@@ -860,21 +941,6 @@ class _SlideImageLoading extends StatelessWidget {
       child: SizedBox.square(
         dimension: 22,
         child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-    );
-  }
-}
-
-class _SlideImageFallback extends StatelessWidget {
-  const _SlideImageFallback();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Icon(
-        Icons.solar_power_rounded,
-        color: AppColors.blue,
-        size: 56,
       ),
     );
   }

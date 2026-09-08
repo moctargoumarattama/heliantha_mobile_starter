@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,6 +10,7 @@ import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../notifications/services/fcm_service.dart';
 import '../../notifications/presentation/notification_bell.dart';
 
 class AccountScreen extends ConsumerWidget {
@@ -66,6 +67,9 @@ class AccountScreen extends ConsumerWidget {
                       onOrders: () => context.push('/orders'),
                       onAddresses: () => context.push('/addresses'),
                       onLogout: () async {
+                        await ref
+                            .read(fcmServiceProvider)
+                            .unregisterCurrentDevice();
                         await ref.read(authRepositoryProvider).logout();
                         ref.invalidate(currentUserProvider);
                         if (context.mounted) {
@@ -223,7 +227,8 @@ class _GuestView extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     FilledButton.icon(
-                      onPressed: () => context.push(loginLocationFor('/account')),
+                      onPressed: () =>
+                          context.push(loginLocationFor('/account')),
                       icon: const Icon(Icons.login_rounded),
                       label: const Text('Se connecter'),
                     ),

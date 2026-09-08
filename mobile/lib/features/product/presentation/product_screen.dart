@@ -10,6 +10,7 @@ import '../../../shared/models/product.dart';
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
 import '../../../shared/utils/api_url.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/utils/money.dart';
 import '../../../shared/widgets/app_feedback.dart';
 import '../../../shared/widgets/app_ui.dart';
@@ -41,25 +42,30 @@ class ProductScreen extends ConsumerWidget {
       ),
       body: productAsync.when(
         loading: () => initialProduct == null
-            ? const Center(child: CircularProgressIndicator())
+            ? const _ProductScreenSkeleton()
             : _ProductBody(
                 product: initialProduct!,
                 isLoadingDetails: true,
               ),
-        error: (_, __) => initialProduct == null
-            ? ResponsivePagePadding(
-                child: AppStatusPanel(
-                  icon: Icons.cloud_off_rounded,
-                  title: 'Produit indisponible',
-                  message: 'Veuillez réessayer dans quelques instants.',
-                  action: OutlinedButton.icon(
-                    onPressed: () => ref.invalidate(productProvider(productId)),
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('Réessayer'),
-                  ),
-                ),
-              )
-            : _ProductBody(product: initialProduct!),
+        error: (error, __) {
+          if (initialProduct != null) {
+            return _ProductBody(product: initialProduct!);
+          }
+
+          final friendly = friendlyLoadError(error);
+          return ResponsivePagePadding(
+            child: AppStatusPanel(
+              icon: Icons.cloud_off_rounded,
+              title: 'Produit indisponible',
+              message: friendly.message,
+              action: OutlinedButton.icon(
+                onPressed: () => ref.invalidate(productProvider(productId)),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Réessayer'),
+              ),
+            ),
+          );
+        },
         data: (product) => _ProductBody(product: product),
       ),
     );
@@ -520,13 +526,22 @@ class _ProductNetworkImage extends StatelessWidget {
         height: double.infinity,
         fit: BoxFit.contain,
         headers: const {'Accept': 'image/*'},
+        frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded) {
+            return child;
+          }
+          return AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            child: child,
+          );
+        },
         loadingBuilder: (context, child, progress) {
           if (progress == null) {
             return child;
           }
-          return const Center(
-            child: CircularProgressIndicator(),
-          );
+          return const _ProductImageLoading();
         },
         errorBuilder: (_, __, ___) => const _ProductImageFallback(),
       );
@@ -536,10 +551,36 @@ class _ProductNetworkImage extends StatelessWidget {
       imageUrl: url,
       httpHeaders: const {'Accept': 'image/*'},
       fit: BoxFit.contain,
-      placeholder: (_, __) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      placeholder: (_, __) => const _ProductImageLoading(),
+      fadeInDuration: const Duration(milliseconds: 180),
+      fadeOutDuration: const Duration(milliseconds: 100),
       errorWidget: (_, __, ___) => const _ProductImageFallback(),
+    );
+  }
+}
+
+class _ProductImageLoading extends StatelessWidget {
+  const _ProductImageLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.surfaceMuted,
+      child: Center(
+        child: Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            color: AppColors.softBlue,
+            borderRadius: BorderRadius.circular(AppRadii.md),
+          ),
+          child: const Icon(
+            Icons.solar_power_rounded,
+            color: AppColors.blue,
+            size: 34,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -554,6 +595,117 @@ class _ProductImageFallback extends StatelessWidget {
         Icons.solar_power_rounded,
         color: AppColors.blue,
         size: 72,
+      ),
+    );
+  }
+}
+
+class _ProductScreenSkeleton extends StatelessWidget {
+  const _ProductScreenSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        ResponsivePagePadding(
+          bottom: 96,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 760;
+              final image = AppSurface(
+                padding: const EdgeInsets.all(14),
+                radius: AppRadii.lg,
+                child: _SkeletonBox(height: wide ? 402 : 282),
+              );
+              final summary = AppSurface(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                radius: AppRadii.lg,
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _SkeletonBox(width: 110, height: 28),
+                    SizedBox(height: 12),
+                    _SkeletonBox(height: 24),
+                    SizedBox(height: 8),
+                    _SkeletonBox(width: 220, height: 24),
+                    SizedBox(height: 16),
+                    _SkeletonBox(width: 130, height: 28),
+                    SizedBox(height: 18),
+                    _SkeletonBox(width: 168, height: 46),
+                    SizedBox(height: 10),
+                    _SkeletonBox(width: 168, height: 46),
+                  ],
+                ),
+              );
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (wide)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: image),
+                        const SizedBox(width: 20),
+                        Expanded(child: summary),
+                      ],
+                    )
+                  else ...[
+                    image,
+                    const SizedBox(height: 14),
+                    summary,
+                  ],
+                  const SizedBox(height: 16),
+                  const AppSurface(
+                    padding: EdgeInsets.all(AppSpacing.xl),
+                    radius: AppRadii.lg,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            _SkeletonBox(width: 118, height: 44),
+                            SizedBox(width: 8),
+                            _SkeletonBox(width: 150, height: 44),
+                          ],
+                        ),
+                        SizedBox(height: 18),
+                        _SkeletonBox(height: 16),
+                        SizedBox(height: 8),
+                        _SkeletonBox(height: 16),
+                        SizedBox(height: 8),
+                        _SkeletonBox(width: 240, height: 16),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SkeletonBox extends StatelessWidget {
+  const _SkeletonBox({
+    this.width,
+    required this.height,
+  });
+
+  final double? width;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceMuted,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
     );
   }

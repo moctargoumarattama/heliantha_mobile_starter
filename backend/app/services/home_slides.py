@@ -3,7 +3,7 @@ from __future__ import annotations
 from html.parser import HTMLParser
 from time import monotonic
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 
@@ -36,24 +36,10 @@ class HomeSlidesService:
         self.catalog = catalog
 
     async def slides(self) -> list[HomeSlideOut]:
-        cached_banners = self._read_cache(self.__class__._banner_cache)
-
-        if cached_banners:
-            return cached_banners
-
         cached_fallback = self._read_cache(self.__class__._fallback_cache)
 
         if cached_fallback:
             return cached_fallback
-
-        banners = await self._public_banners()
-
-        if banners:
-            self.__class__._banner_cache = (
-                monotonic() + BANNER_CACHE_TTL_SECONDS,
-                banners,
-            )
-            return banners
 
         fallback = await self._product_fallback()
         self.__class__._fallback_cache = (
@@ -89,7 +75,7 @@ class HomeSlidesService:
     async def _product_fallback(self) -> list[HomeSlideOut]:
         products, _ = await self.catalog.products(
             page=1,
-            page_size=8,
+            page_size=16,
             language_id=3,
         )
 
@@ -97,6 +83,8 @@ class HomeSlidesService:
 
         for product in products:
             if not product.image_url:
+                continue
+            if not await self._has_valid_product_image(product.image_url):
                 continue
 
             subtitle = f"{product.price:,.0f} {product.currency_symbol}"
@@ -119,6 +107,42 @@ class HomeSlidesService:
                 break
 
         return slides
+
+    async def _has_valid_product_image(self, image_url: str) -> bool:
+        parsed = urlparse(image_url)
+        path = parsed.path.strip("/")
+        if not path.startswith("v1/products/") or not path.endswith("/image"):
+            return False
+
+        parts = path.split("/")
+        if len(parts) < 4:
+            return False
+
+        try:
+            product_id = int(parts[2])
+        except ValueError:
+            return False
+
+        image_id = None
+        query = parse_qs(parsed.query)
+        raw_image_id = query.get("image_id", [None])[0]
+        if raw_image_id:
+            try:
+                image_id = int(raw_image_id)
+            except ValueError:
+                return False
+
+        ps_path = (
+            f"images/products/{product_id}/{image_id}"
+            if image_id
+            else f"images/products/{product_id}"
+        )
+        try:
+            content, content_type, _ = await self.catalog.ps.get_binary(ps_path)
+        except Exception:
+            return False
+
+        return bool(content) and content_type.lower().startswith("image/")
 
 
 class PublicSliderParser(HTMLParser):

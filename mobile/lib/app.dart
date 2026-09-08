@@ -1,16 +1,56 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
+import 'features/auth/providers/auth_provider.dart';
 import 'features/catalog/providers/store_context_provider.dart';
+import 'features/notifications/services/fcm_service.dart';
 import 'shared/theme/app_theme.dart';
 import 'shared/widgets/app_background.dart';
 
-class HelianthaApp extends ConsumerWidget {
+class HelianthaApp extends ConsumerStatefulWidget {
   const HelianthaApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HelianthaApp> createState() => _HelianthaAppState();
+}
+
+class _HelianthaAppState extends ConsumerState<HelianthaApp> {
+  bool _fcmStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_startFcm());
+    });
+  }
+
+  Future<void> _startFcm() async {
+    if (_fcmStarted) {
+      return;
+    }
+    _fcmStarted = true;
+
+    final service = ref.read(fcmServiceProvider);
+    await service.initialize(appRouter);
+
+    final user = await ref.read(currentUserProvider.future);
+    if (user != null) {
+      await service.registerForCurrentUser();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(currentUserProvider, (previous, next) {
+      if (next.valueOrNull != null) {
+        unawaited(ref.read(fcmServiceProvider).registerForCurrentUser());
+      }
+    });
+
     final storeContext = ref.watch(storeContextProvider).valueOrNull;
     final selectedLanguageId = ref.watch(selectedLanguageIdProvider);
     final language = storeContext?.languageById(

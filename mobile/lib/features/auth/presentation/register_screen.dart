@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../shared/theme/app_colors.dart';
 import '../../../shared/theme/app_tokens.dart';
+import '../../../shared/utils/friendly_errors.dart';
 import '../../../shared/widgets/app_ui.dart';
 import '../../../shared/widgets/brand_widgets.dart';
+import '../../notifications/services/fcm_service.dart';
 import '../providers/auth_provider.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -59,13 +61,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             password: _password.text,
           );
       ref.invalidate(currentUserProvider);
+      await ref.read(fcmServiceProvider).registerForCurrentUser();
       if (mounted) {
         context.replace(_safeRedirect(widget.redirectLocation));
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
-          _error = 'Création de compte impossible pour ces informations.';
+          _error = friendlyRegisterMessage(error);
         });
       }
     } finally {
