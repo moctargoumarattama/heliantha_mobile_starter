@@ -32,6 +32,10 @@ class NotificationOut(BaseModel):
 class PrestaShopOrderEventIn(BaseModel):
     type: NotificationType
     order_id: int
+    customer_id: int | None = None
+    reference: str | None = None
+    state_id: int | None = None
+    event: str | None = None
     status_key: str | None = None
     title: str | None = None
     message: str | None = None

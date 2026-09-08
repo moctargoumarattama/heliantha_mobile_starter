@@ -106,30 +106,81 @@ async def prestashop_event(
     if not _valid_webhook_secret(settings, x_heliantha_bridge_secret):
         raise HTTPException(status_code=401, detail="Acces refuse.")
 
-    order_payload = await ps.get_resource(
-        "orders",
-        payload.order_id,
-        params={
-            "display": "[id,reference,id_customer,current_state,total_paid_tax_incl]"
-        },
-    )
-    order = order_payload.get("order") if isinstance(order_payload, dict) else None
-    if not isinstance(order, dict):
-        raise HTTPException(status_code=404, detail="Commande introuvable.")
-
-    customer_id = to_int(order.get("id_customer"))
-    state_id = to_int(order.get("current_state"))
-    if not customer_id or not state_id:
-        raise HTTPException(status_code=422, detail="Commande invalide.")
-
-    state_name, paid = await _order_state(ps, state_id)
-    reference = str(order.get("reference") or payload.order_id)
-    status_key = payload.status_key or f"{payload.type.value.lower()}-{state_id}"
-
     is_created = (
-        payload.metadata.get("event") == "order_created"
+        payload.event == "order_created"
+        or payload.metadata.get("event") == "order_created"
         or (payload.status_key and "created" in payload.status_key)
     )
+
+    customer_id = payload.customer_id or to_int(payload.metadata.get("customer_id"))
+    reference = str(payload.reference or payload.metadata.get("reference") or "").strip()
+
+    # CAS CRÉATION COMMANDE / ORDER_CREATED :
+    # Si customer_id + order_id + reference sont fournis directement par le bridge PrestaShop,
+    # NE PAS appeler ps.get_resource("orders", ...) pour éviter les 404 lors de la création synchrone.
+    if is_created and customer_id and payload.order_id and reference:
+        title = payload.title or "Commande enregistrée"
+        raw_body = payload.message or (
+            f"🎉 Merci pour votre confiance ! Votre commande n°{reference} a bien été enregistrée. Notre équipe s'en occupe."
+        )
+        body = (
+            raw_body
+            .replace("{reference}", reference)
+            .replace("REFERENCE", reference)
+        )
+        status_key = payload.status_key or f"order-created-{payload.order_id}"
+
+        row = await service.create_notification(
+            customer_id=customer_id,
+            type_=payload.type,
+            title=title,
+            body=body,
+            order_id=payload.order_id,
+            status_key=status_key,
+            metadata={**payload.metadata, "route": f"/orders/{payload.order_id}"},
+        )
+        return {
+            "success": True,
+            "data": row.model_dump() if row else None,
+            "meta": {"created": row is not None},
+            "error": None,
+        }
+
+    # CAS CHANGEMENT DE STATUT (ou création sans données complètes dans le payload) :
+    order = None
+    try:
+        order_payload = await ps.get_resource(
+            "orders",
+            payload.order_id,
+            params={
+                "display": "[id,reference,id_customer,current_state,total_paid_tax_incl]"
+            },
+        )
+        if isinstance(order_payload, dict):
+            order = order_payload.get("order")
+    except Exception:
+        order = None
+
+    if isinstance(order, dict):
+        customer_id = to_int(order.get("id_customer")) or customer_id
+        state_id = to_int(order.get("current_state")) or payload.state_id or to_int(payload.metadata.get("state_id"))
+        reference = str(order.get("reference") or reference or payload.order_id)
+    else:
+        state_id = payload.state_id or to_int(payload.metadata.get("state_id"))
+        reference = reference or str(payload.order_id)
+
+    if not customer_id:
+        raise HTTPException(status_code=404, detail="Commande introuvable.")
+
+    paid = False
+    state_name = "Statut mis à jour"
+    if state_id:
+        try:
+            state_name, paid = await _order_state(ps, state_id)
+        except Exception:
+            pass
+
+    status_key = payload.status_key or f"{payload.type.value.lower()}-{state_id or 0}"
 
     if payload.title:
         title = payload.title

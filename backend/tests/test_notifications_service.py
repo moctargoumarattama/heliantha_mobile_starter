@@ -224,3 +224,96 @@ def test_prestashop_event_order_created_and_status_update(service):
     finally:
         app.dependency_overrides.pop(get_ps_client, None)
         app.dependency_overrides.pop(get_notification_service, None)
+
+
+def test_prestashop_event_order_created_when_webservice_is_unavailable(service):
+    """
+    Reproduces production bug where PrestaShop Webservice returns 404 / unavailable
+    immediately upon order creation.
+    Thanks to direct bridge payload (customer_id, order_id, reference),
+    FastAPI bypasses the Webservice call and creates the notification successfully.
+    """
+    from unittest.mock import AsyncMock
+    from starlette.testclient import TestClient
+    from app.main import app
+    from app.api.deps import get_ps_client, get_notification_service
+    from app.core.security import create_access_token
+    from app.core.config import get_settings
+    from app.clients.prestashop import PrestaShopError
+
+    settings = get_settings()
+    mock_ps = AsyncMock()
+
+    # Webservice FAILS with 404 / error if called
+    mock_ps.get_resource = AsyncMock(side_effect=PrestaShopError("PrestaShop 404 sur orders/88: Commande introuvable"))
+    mock_ps.settings = settings
+
+    app.dependency_overrides[get_ps_client] = lambda: mock_ps
+    app.dependency_overrides[get_notification_service] = lambda: service
+
+    try:
+        client = TestClient(app)
+        secret = settings.mobile_bridge_secret
+
+        payload = {
+            "type": "ORDER_STATUS",
+            "order_id": 88,
+            "customer_id": 25,
+            "reference": "HELIANTHA-PROD-88",
+            "state_id": 3,
+            "event": "order_created",
+            "status_key": "order-created-88",
+            "title": "Commande enregistrée",
+            "message": "🎉 Merci pour votre confiance ! Votre commande n°HELIANTHA-PROD-88 a bien été enregistrée. Notre équipe s'en occupe.",
+            "metadata": {
+                "source": "actionValidateOrder",
+                "event": "order_created",
+                "reference": "HELIANTHA-PROD-88",
+                "customer_id": 25,
+            },
+        }
+
+        # 1. Post event: should succeed without calling ps.get_resource
+        resp = client.post(
+            "/v1/notifications/prestashop-event",
+            json=payload,
+            headers={"X-Heliantha-Bridge-Secret": secret},
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["success"] is True
+        assert data["meta"]["created"] is True
+        assert data["data"]["title"] == "Commande enregistrée"
+        assert "HELIANTHA-PROD-88" in data["data"]["body"]
+        assert "🎉 Merci pour votre confiance !" in data["data"]["body"]
+        assert data["data"]["order_id"] == 88
+
+        # Verify ps.get_resource was NEVER called for order_created!
+        mock_ps.get_resource.assert_not_called()
+
+        # 2. GET /v1/notifications for customer_id=25 returns the notification
+        token_25 = create_access_token(customer_id=25, email="customer25@heliantha.ma", settings=settings)
+        resp_list = client.get("/v1/notifications", headers={"Authorization": f"Bearer {token_25}"})
+        assert resp_list.status_code == 200
+        items = resp_list.json()["data"]
+        assert len(items) == 1
+        assert items[0]["title"] == "Commande enregistrée"
+        assert items[0]["order_id"] == 88
+        assert "HELIANTHA-PROD-88" in items[0]["body"]
+
+        # 3. Second call with same status_key does not create a duplicate
+        resp_dup = client.post(
+            "/v1/notifications/prestashop-event",
+            json=payload,
+            headers={"X-Heliantha-Bridge-Secret": secret},
+        )
+        assert resp_dup.status_code == 200
+        assert resp_dup.json()["meta"]["created"] is False
+        assert resp_dup.json()["data"] is None
+
+        # Verify notifications count is still 1
+        resp_list_dup = client.get("/v1/notifications", headers={"Authorization": f"Bearer {token_25}"})
+        assert len(resp_list_dup.json()["data"]) == 1
+    finally:
+        app.dependency_overrides.pop(get_ps_client, None)
+        app.dependency_overrides.pop(get_notification_service, None)

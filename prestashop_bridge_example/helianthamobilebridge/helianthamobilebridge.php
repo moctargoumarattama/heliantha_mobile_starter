@@ -53,13 +53,34 @@ class HelianthaMobileBridge extends Module
             $orderId = 0;
             $reference = '';
             $customerId = 0;
+            $stateId = 0;
 
             if ($order instanceof Order || (is_object($order) && isset($order->id))) {
                 $orderId = (int) $order->id;
                 $reference = (string) ($order->reference ?? '');
                 $customerId = (int) ($order->id_customer ?? 0);
+                $stateId = (int) ($order->current_state ?? 0);
             } elseif (isset($params['id_order'])) {
                 $orderId = (int) $params['id_order'];
+            }
+
+            if ($customerId <= 0 && isset($params['customer']) && Validate::isLoadedObject($params['customer'])) {
+                $customerId = (int) $params['customer']->id;
+            }
+
+            if ($orderId > 0 && ($reference === '' || $customerId <= 0)) {
+                $loadedOrder = new Order($orderId);
+                if (Validate::isLoadedObject($loadedOrder)) {
+                    if ($reference === '') {
+                        $reference = (string) $loadedOrder->reference;
+                    }
+                    if ($customerId <= 0) {
+                        $customerId = (int) $loadedOrder->id_customer;
+                    }
+                    if ($stateId <= 0) {
+                        $stateId = (int) $loadedOrder->current_state;
+                    }
+                }
             }
 
             if ($orderId <= 0) {
@@ -71,12 +92,19 @@ class HelianthaMobileBridge extends Module
             $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
                 'type' => 'ORDER_STATUS',
                 'order_id' => $orderId,
+                'customer_id' => $customerId,
+                'reference' => $reference,
+                'state_id' => $stateId,
+                'event' => 'order_created',
                 'status_key' => 'order-created-' . $orderId,
+                'title' => 'Commande enregistrée',
+                'message' => '🎉 Merci pour votre confiance ! Votre commande n°' . $reference . ' a bien été enregistrée. Notre équipe s\'en occupe.',
                 'metadata' => [
                     'source' => 'actionValidateOrder',
                     'event' => 'order_created',
                     'reference' => $reference,
                     'customer_id' => $customerId,
+                    'state_id' => $stateId,
                 ],
             ]);
         } catch (Throwable $e) {
@@ -115,13 +143,23 @@ class HelianthaMobileBridge extends Module
                 // Continuer si la requête DB échoue
             }
 
+            $order = new Order($orderId);
+            $customerId = Validate::isLoadedObject($order) ? (int) $order->id_customer : 0;
+            $reference = Validate::isLoadedObject($order) ? (string) $order->reference : '';
+
             $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
                 'type' => 'ORDER_STATUS',
                 'order_id' => $orderId,
+                'customer_id' => $customerId,
+                'reference' => $reference,
+                'state_id' => (int) $state->id,
+                'event' => 'status_updated',
                 'status_key' => 'order-' . (int) $state->id,
                 'metadata' => [
                     'source' => 'actionOrderStatusPostUpdate',
                     'state_id' => (int) $state->id,
+                    'customer_id' => $customerId,
+                    'reference' => $reference,
                 ],
             ]);
 
@@ -129,10 +167,16 @@ class HelianthaMobileBridge extends Module
                 $this->postMobileNotificationEvent('/v1/notifications/prestashop-event', [
                     'type' => 'PAYMENT_STATUS',
                     'order_id' => $orderId,
+                    'customer_id' => $customerId,
+                    'reference' => $reference,
+                    'state_id' => (int) $state->id,
+                    'event' => 'payment_updated',
                     'status_key' => 'payment-paid-' . (int) $state->id,
                     'metadata' => [
                         'source' => 'actionOrderStatusPostUpdate',
                         'state_id' => (int) $state->id,
+                        'customer_id' => $customerId,
+                        'reference' => $reference,
                     ],
                 ]);
             }
