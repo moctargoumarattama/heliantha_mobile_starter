@@ -317,3 +317,54 @@ def test_prestashop_event_order_created_when_webservice_is_unavailable(service):
     finally:
         app.dependency_overrides.pop(get_ps_client, None)
         app.dependency_overrides.pop(get_notification_service, None)
+
+
+@pytest.mark.anyio
+async def test_fcm_message_payload_has_android_config(service, monkeypatch):
+    from unittest.mock import MagicMock
+    from app.services import notifications as notif_module
+
+    sent_messages = []
+
+    mock_messaging = MagicMock()
+    mock_messaging.Message = notif_module.messaging.Message
+    mock_messaging.Notification = notif_module.messaging.Notification
+    mock_messaging.AndroidConfig = notif_module.messaging.AndroidConfig
+    mock_messaging.AndroidNotification = notif_module.messaging.AndroidNotification
+    mock_messaging.send = lambda msg: sent_messages.append(msg)
+
+    monkeypatch.setattr(notif_module, "messaging", mock_messaging)
+    monkeypatch.setattr(service, "_firebase_ready", lambda: True)
+
+    from app.schemas.notification import DeviceTokenIn
+    service.register_device(
+        customer_id=42,
+        payload=DeviceTokenIn(token="test-device-token-123", platform="android"),
+    )
+
+    created = await service.create_notification(
+        customer_id=42,
+        type_=NotificationType.ORDER_STATUS,
+        title="Commande expédiée",
+        body="Votre colis est en route.",
+        order_id=99,
+        status_key="order-shipped-99",
+        metadata={"order_id": "99", "route": "/orders/99"},
+    )
+
+    assert created is not None
+    assert len(sent_messages) == 1
+
+    msg = sent_messages[0]
+    assert msg.token == "test-device-token-123"
+    assert msg.notification.title == "Commande expédiée"
+    assert msg.notification.body == "Votre colis est en route."
+
+    # AndroidConfig validation
+    assert msg.android is not None
+    assert msg.android.priority == "high"
+    assert msg.android.notification is not None
+    assert msg.android.notification.channel_id == "heliantha_notifications"
+    assert msg.android.notification.default_sound is True
+    assert msg.android.notification.default_vibrate_timings is True
+

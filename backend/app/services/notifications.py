@@ -328,6 +328,14 @@ class NotificationService:
                             title=notification.title,
                             body=notification.body,
                         ),
+                        android=messaging.AndroidConfig(
+                            priority="high",
+                            notification=messaging.AndroidNotification(
+                                channel_id="heliantha_notifications",
+                                default_sound=True,
+                                default_vibrate_timings=True,
+                            ),
+                        ),
                         data={
                             key: str(value)
                             for key, value in notification.metadata.items()
